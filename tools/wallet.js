@@ -57,14 +57,9 @@ function getJupiterReferralParams() {
  * Returns USD-denominated values provided by Helius.
  */
 export async function getWalletBalances() {
-  let walletAddress;
-  try {
-    walletAddress = getWallet().publicKey.toString();
-  } catch {
-    return { wallet: null, sol: 0, sol_price: 0, sol_usd: 0, usdc: 0, tokens: [], total_usd: 0, error: "Wallet not configured" };
-  }
-
   if (process.env.DRY_RUN === "true") {
+    let walletAddress = null;
+    try { walletAddress = getWallet().publicKey.toString(); } catch { /* ok in dry run */ }
     const simSol = parseFloat(process.env.DRY_RUN_SOL || "0.3");
     const simPrice = 170;
     return {
@@ -77,6 +72,13 @@ export async function getWalletBalances() {
       total_usd: Math.round(simSol * simPrice * 100) / 100,
       simulated: true,
     };
+  }
+
+  let walletAddress;
+  try {
+    walletAddress = getWallet().publicKey.toString();
+  } catch {
+    return { wallet: null, sol: 0, sol_price: 0, sol_usd: 0, usdc: 0, tokens: [], total_usd: 0, error: "Wallet not configured" };
   }
 
   const HELIUS_KEY = process.env.HELIUS_API_KEY;
