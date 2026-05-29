@@ -222,6 +222,43 @@ Agent Meridian HiveMind sync is handled by `hivemind.js`. It uses built-in Agent
 
 ---
 
+## Fork Customizations (vs upstream)
+
+Changes made in this fork — **do not blindly merge upstream** without reviewing these:
+
+### New Files
+| File | Purpose |
+|------|---------|
+| `discord-notify.js` | Discord notification mirror via Bot API v10. Converts Telegram HTML → Discord markdown. Non-blocking (errors swallowed). Env: `DISCORD_BOT_TOKEN`, `DISCORD_NOTIFY_CHANNEL_ID`. |
+
+### Modified Files
+
+**`telegram.js`**
+- Added `import { discordSendHtml, discordSend } from "./discord-notify.js"`
+- `notifyDeploy`, `notifyClose`, `notifySwap`, `notifyOutOfRange` each call `void discordSendHtml(html)` after sending to Telegram — fire-and-forget Discord mirror.
+
+**`tools/wallet.js` — `getWalletBalances()`**
+- Added dry-run short-circuit before Helius API call.
+- When `DRY_RUN=true`, returns simulated balance: `{ sol: DRY_RUN_SOL, sol_price: 170, simulated: true, ... }` — LLM sees capital and can exercise full deploy flow without real funds.
+- `DRY_RUN_SOL` env var controls simulated amount (default `0.3` ≈ $51 at $170/SOL).
+
+### New Env Vars
+| Var | Purpose |
+|-----|---------|
+| `DISCORD_BOT_TOKEN` | Discord bot token for notification mirror |
+| `DISCORD_NOTIFY_CHANNEL_ID` | Target Discord channel ID |
+| `DRY_RUN_SOL` | Simulated SOL balance in dry-run mode (default `0.3`) |
+
+### Strategy Config (`user-config.json`)
+Tuned for small wallet (~$50 sim), conservative entry:
+- `deployAmountSol: 0.15`, `maxPositions: 2`, `minSolToOpen: 0.25`, `gasReserve: 0.1`
+- `minTvl: 25000`, `maxTvl: 150000`, `minFeeActiveTvlRatio: 0.5`
+- `minBinStep: 50`, `maxBinStep: 100`
+- `takeProfitPct: 8`, `stopLossPct: -15`, `trailingTakeProfit: true`
+- LLM: `llmProvider: minimax`, `llmBaseUrl: https://api.minimax.io/v1`, models: MiniMax-M2.7 / M2.5
+
+---
+
 ## Known Issues / Tech Debt
 
 - `lessons.js evolveThresholds()` evolves `maxVolatility` + `minFeeTvlRatio` (wrong key names — should be `minFeeActiveTvlRatio`; `maxVolatility` doesn't exist in config at all). The evolution is a no-op for those keys.

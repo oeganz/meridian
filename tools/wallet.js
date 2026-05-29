@@ -64,6 +64,21 @@ export async function getWalletBalances() {
     return { wallet: null, sol: 0, sol_price: 0, sol_usd: 0, usdc: 0, tokens: [], total_usd: 0, error: "Wallet not configured" };
   }
 
+  if (process.env.DRY_RUN === "true") {
+    const simSol = parseFloat(process.env.DRY_RUN_SOL || "0.3");
+    const simPrice = 170;
+    return {
+      wallet: walletAddress,
+      sol: simSol,
+      sol_price: simPrice,
+      sol_usd: Math.round(simSol * simPrice * 100) / 100,
+      usdc: 0,
+      tokens: [],
+      total_usd: Math.round(simSol * simPrice * 100) / 100,
+      simulated: true,
+    };
+  }
+
   const HELIUS_KEY = process.env.HELIUS_API_KEY;
   if (!HELIUS_KEY) {
     log("wallet_error", "HELIUS_API_KEY not set in .env");
