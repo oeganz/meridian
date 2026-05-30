@@ -1170,32 +1170,55 @@ export async function getMyPositions({ force = false, silent = false, wallet_add
   // Must be BEFORE getWallet() — no private key required in DRY_RUN mode
   if (process.env.DRY_RUN === "true" && useLocalWallet) {
     const tracked = getTrackedPositions(true); // openOnly
-    const positions = tracked.map((p) => ({
-      position:            p.position,
-      pool:                p.pool,
-      pair:                p.pool_name ?? null,
-      pool_name:           p.pool_name ?? null,
-      strategy:            p.strategy ?? null,
-      base_mint:           null,
-      in_range:            true,
-      lower_bin:           p.bin_range?.lower ?? null,
-      upper_bin:           p.bin_range?.upper ?? null,
-      active_bin:          null,
-      amount_sol:          p.amount_sol ?? null,
-      total_value_usd:     p.amount_sol != null ? parseFloat((p.amount_sol * 170).toFixed(2)) : null,
-      pnl_usd:             0,
-      pnl_pct:             0,
-      pnl_pct_derived:     null,
-      pnl_pct_suspicious:  false,
-      fee_per_tvl_24h:     null,
-      unclaimed_fees_usd:  0,
-      age_minutes:         p.deployed_at
+    const solPrice = parseFloat(process.env.DRY_RUN_SOL_PRICE ?? "170");
+    const positions = tracked.map((p) => {
+      const ageMin = p.deployed_at
         ? Math.floor((Date.now() - new Date(p.deployed_at).getTime()) / 60000)
-        : null,
-      minutes_out_of_range: minutesOutOfRange(p.position),
-      instruction:         p.instruction ?? null,
-      simulated:           true,
-    }));
+        : null;
+      const entrySolPrice = p.entry_sol_price ?? solPrice;
+      const initialUsd = p.initial_value_usd
+        ?? (p.amount_sol != null ? parseFloat((p.amount_sol * entrySolPrice).toFixed(2)) : null);
+      // Simulated fees: fee_tvl_ratio is daily %; scale by age
+      const ageDays = ageMin != null ? ageMin / 1440 : 0;
+      const feeRate = p.fee_tvl_ratio ?? p.initial_fee_tvl_24h ?? 0;
+      const simFees = initialUsd != null && feeRate > 0
+        ? parseFloat((initialUsd * (feeRate / 100) * ageDays).toFixed(4))
+        : 0;
+      // Simulated PnL: SOL value change (current vs entry sol price)
+      const currentValue = p.amount_sol != null
+        ? parseFloat((p.amount_sol * solPrice).toFixed(2))
+        : initialUsd;
+      const simPnlUsd = initialUsd != null && currentValue != null
+        ? parseFloat((currentValue - initialUsd + simFees).toFixed(4))
+        : 0;
+      const simPnlPct = initialUsd != null && initialUsd > 0
+        ? parseFloat(((simPnlUsd / initialUsd) * 100).toFixed(2))
+        : 0;
+      return {
+        position:            p.position,
+        pool:                p.pool,
+        pair:                p.pool_name ?? null,
+        pool_name:           p.pool_name ?? null,
+        strategy:            p.strategy ?? null,
+        base_mint:           p.base_mint ?? null,
+        in_range:            true,
+        lower_bin:           p.bin_range?.lower ?? null,
+        upper_bin:           p.bin_range?.upper ?? null,
+        active_bin:          null,
+        amount_sol:          p.amount_sol ?? null,
+        total_value_usd:     currentValue,
+        pnl_usd:             simPnlUsd,
+        pnl_pct:             simPnlPct,
+        pnl_pct_derived:     null,
+        pnl_pct_suspicious:  false,
+        fee_per_tvl_24h:     feeRate || null,
+        unclaimed_fees_usd:  simFees,
+        age_minutes:         ageMin,
+        minutes_out_of_range: minutesOutOfRange(p.position),
+        instruction:         p.instruction ?? null,
+        simulated:           true,
+      };
+    });
     const result = {
       wallet: "DRY_RUN",
       total_positions: positions.length,

@@ -609,9 +609,11 @@ export async function executeTool(name, args) {
           amount_sol:       args.amount_y ?? args.amount_sol,
           bin_step:         args.bin_step,
           volatility:       args.volatility ?? null,
-          fee_tvl_ratio:    null,
-          organic_score:    null,
-          initial_value_usd: null,
+          fee_tvl_ratio:    args.fee_tvl_ratio ?? null,
+          organic_score:    args.organic_score ?? null,
+          initial_value_usd: args.initial_value_usd ?? null,
+          entry_sol_price:  parseFloat(process.env.DRY_RUN_SOL_PRICE ?? "170"),
+          base_mint:        args.base_mint ?? null,
         });
       } catch (e) { log("dry_run", `trackPosition failed: ${e.message}`); }
     }
