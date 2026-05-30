@@ -1166,14 +1166,8 @@ export async function getMyPositions({ force = false, silent = false, wallet_add
   }
   if (useLocalWallet && _positionsInflight) return _positionsInflight;
 
-  let walletAddress;
-  try {
-    walletAddress = walletOverride || getWallet().publicKey.toString();
-  } catch {
-    return { wallet: null, total_positions: 0, positions: [], error: "Wallet not configured" };
-  }
-
   // DRY_RUN: return tracked state positions — no on-chain query, no syncOpenPositions
+  // Must be BEFORE getWallet() — no private key required in DRY_RUN mode
   if (process.env.DRY_RUN === "true" && useLocalWallet) {
     const tracked = getTrackedPositions(true); // openOnly
     const positions = tracked.map((p) => ({
@@ -1201,7 +1195,7 @@ export async function getMyPositions({ force = false, silent = false, wallet_add
       simulated:           true,
     }));
     const result = {
-      wallet: walletAddress,
+      wallet: "DRY_RUN",
       total_positions: positions.length,
       positions,
       dry_run: true,
@@ -1209,6 +1203,13 @@ export async function getMyPositions({ force = false, silent = false, wallet_add
     _positionsCache = result;
     _positionsCacheAt = Date.now();
     return result;
+  }
+
+  let walletAddress;
+  try {
+    walletAddress = walletOverride || getWallet().publicKey.toString();
+  } catch {
+    return { wallet: null, total_positions: 0, positions: [], error: "Wallet not configured" };
   }
 
   const loadPositions = async () => { try {
