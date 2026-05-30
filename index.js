@@ -40,7 +40,25 @@ const isMain = entrypointPath
   ? path.resolve(entrypointPath) === fileURLToPath(import.meta.url)
   : false;
 
+function validateEnv() {
+  const required = ["RPC_URL", "OPENROUTER_API_KEY"];
+  const missing  = required.filter((k) => !process.env[k]);
+  if (missing.length) {
+    console.error(`\n[startup] Missing required env vars: ${missing.join(", ")}`);
+    console.error("[startup] Check your .env file and restart.\n");
+    process.exit(1);
+  }
+  if (process.env.DRY_RUN !== "true") {
+    const key = process.env.WALLET_PRIVATE_KEY;
+    if (!key) {
+      console.error("\n[startup] WALLET_PRIVATE_KEY not set. Set DRY_RUN=true for sandbox mode.\n");
+      process.exit(1);
+    }
+  }
+}
+
 if (isMain) {
+  validateEnv();
   log("startup", "DLMM LP Agent starting...");
   log("startup", `Mode: ${process.env.DRY_RUN === "true" ? "DRY RUN" : "LIVE"}`);
   log("startup", `Model: ${process.env.LLM_MODEL || "hermes-3-405b"}`);
