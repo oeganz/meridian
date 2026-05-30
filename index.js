@@ -41,8 +41,11 @@ const isMain = entrypointPath
   : false;
 
 function validateEnv() {
-  const required = ["RPC_URL", "OPENROUTER_API_KEY"];
+  const required = ["RPC_URL"];
   const missing  = required.filter((k) => !process.env[k]);
+  if (!process.env.OPENROUTER_API_KEY && !process.env.LLM_API_KEY) {
+    missing.push("OPENROUTER_API_KEY or LLM_API_KEY");
+  }
   if (missing.length) {
     console.error(`\n[startup] Missing required env vars: ${missing.join(", ")}`);
     console.error("[startup] Check your .env file and restart.\n");
