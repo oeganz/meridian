@@ -1173,6 +1173,7 @@ export async function getMyPositions({ force = false, silent = false, wallet_add
     const positions = tracked.map((p) => ({
       position:            p.position,
       pool:                p.pool,
+      pair:                p.pool_name ?? null,
       pool_name:           p.pool_name ?? null,
       strategy:            p.strategy ?? null,
       base_mint:           null,
@@ -1181,12 +1182,13 @@ export async function getMyPositions({ force = false, silent = false, wallet_add
       upper_bin:           p.bin_range?.upper ?? null,
       active_bin:          null,
       amount_sol:          p.amount_sol ?? null,
-      pnl_usd:             null,
-      pnl_pct:             null,
+      total_value_usd:     p.amount_sol != null ? parseFloat((p.amount_sol * 170).toFixed(2)) : null,
+      pnl_usd:             0,
+      pnl_pct:             0,
       pnl_pct_derived:     null,
       pnl_pct_suspicious:  false,
       fee_per_tvl_24h:     null,
-      unclaimed_fees_usd:  null,
+      unclaimed_fees_usd:  0,
       age_minutes:         p.deployed_at
         ? Math.floor((Date.now() - new Date(p.deployed_at).getTime()) / 60000)
         : null,
