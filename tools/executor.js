@@ -12,7 +12,7 @@ import {
 import { getWalletBalances, swapToken } from "./wallet.js";
 import { studyTopLPers } from "./study.js";
 import { addLesson, clearAllLessons, clearPerformance, removeLessonsByKeyword, getPerformanceHistory, pinLesson, unpinLesson, listLessons } from "../lessons.js";
-import { setPositionInstruction } from "../state.js";
+import { setPositionInstruction, trackPosition } from "../state.js";
 
 import { getPoolMemory, addPoolNote } from "../pool-memory.js";
 import { addStrategy, listStrategies, getStrategy, setActiveStrategy, removeStrategy } from "../strategy-library.js";
@@ -578,6 +578,31 @@ export async function executeTool(name, args) {
         reason: safetyCheck.reason,
       };
     }
+  }
+
+  // ─── DRY_RUN mock for write operations ───
+  if (process.env.DRY_RUN === "true" && WRITE_TOOLS.has(name)) {
+    const fakeResult = {
+      simulated: true,
+      dry_run: true,
+      pool_address: args.pool_address,
+      amount_sol: args.amount_y ?? args.amount_sol,
+      position_id: `DRY_${Date.now()}`,
+      message: `DRY_RUN: ${name} simulated, no on-chain transaction`,
+    };
+    if (name === "deploy_position") {
+      fakeResult.success = true;
+      fakeResult.position = fakeResult.position_id;
+      fakeResult.pool_name = args.pool_name ?? args.pool_address?.slice(0, 8);
+      fakeResult.bin_step = args.bin_step;
+      fakeResult.price_range = args.price_range ?? null;
+      fakeResult.range_coverage = "N/A (dry run)";
+      fakeResult.base_fee = null;
+      fakeResult.txs = [];
+      try { await trackPosition(fakeResult, args); } catch { /* ignore */ }
+    }
+    log("dry_run", `${name} mocked — no on-chain tx`);
+    return fakeResult;
   }
 
   // ─── Execute ──────────────────────────────
