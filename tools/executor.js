@@ -8,6 +8,7 @@ import {
   claimFees,
   closePosition,
   searchPools,
+  fetchTokenPrice,
 } from "./dlmm.js";
 import { getWalletBalances, swapToken } from "./wallet.js";
 import { studyTopLPers } from "./study.js";
@@ -582,6 +583,10 @@ export async function executeTool(name, args) {
 
   // ─── DRY_RUN mock for write operations ───
   if (process.env.DRY_RUN === "true" && WRITE_TOOLS.has(name)) {
+    // close_position has full simulation logic in dlmm.js — forward it
+    if (name === "close_position") {
+      return fn(args);
+    }
     const fakeResult = {
       simulated: true,
       dry_run: true,
@@ -600,20 +605,24 @@ export async function executeTool(name, args) {
       fakeResult.base_fee = null;
       fakeResult.txs = [];
       try {
+        const entry_token_price_usd = args.pool_address
+          ? await fetchTokenPrice(args.pool_address).catch(() => null)
+          : null;
         trackPosition({
-          position:         fakeResult.position_id,
-          pool:             args.pool_address,
-          pool_name:        fakeResult.pool_name,
-          strategy:         args.strategy ?? config.strategy.strategy,
-          bin_range:        { lower: null, upper: null },
-          amount_sol:       args.amount_y ?? args.amount_sol,
-          bin_step:         args.bin_step,
-          volatility:       args.volatility ?? null,
-          fee_tvl_ratio:    args.fee_tvl_ratio ?? null,
-          organic_score:    args.organic_score ?? null,
+          position:          fakeResult.position_id,
+          pool:              args.pool_address,
+          pool_name:         fakeResult.pool_name,
+          strategy:          args.strategy ?? config.strategy.strategy,
+          bin_range:         { lower: null, upper: null },
+          amount_sol:        args.amount_y ?? args.amount_sol,
+          bin_step:          args.bin_step,
+          volatility:        args.volatility ?? null,
+          fee_tvl_ratio:     args.fee_tvl_ratio ?? null,
+          organic_score:     args.organic_score ?? null,
           initial_value_usd: args.initial_value_usd ?? null,
-          entry_sol_price:  parseFloat(process.env.DRY_RUN_SOL_PRICE ?? "170"),
-          base_mint:        args.base_mint ?? null,
+          entry_sol_price:   parseFloat(process.env.DRY_RUN_SOL_PRICE ?? "170"),
+          base_mint:         args.base_mint ?? null,
+          entry_token_price_usd,
         });
       } catch (e) { log("dry_run", `trackPosition failed: ${e.message}`); }
     }

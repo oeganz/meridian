@@ -69,6 +69,7 @@ export function trackPosition({
   initial_value_usd,
   entry_sol_price = null,
   base_mint = null,
+  entry_token_price_usd = null,
   signal_snapshot = null,
 }) {
   const state = load();
@@ -89,6 +90,7 @@ export function trackPosition({
     initial_value_usd,
     entry_sol_price,
     base_mint,
+    entry_token_price_usd,
     signal_snapshot: signal_snapshot || null,
     deployed_at: new Date().toISOString(),
     out_of_range_since: null,

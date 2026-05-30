@@ -311,6 +311,10 @@ function derivLesson(perf) {
 export function evolveThresholds(perfData, config) {
   if (!perfData || perfData.length < MIN_EVOLVE_POSITIONS) return null;
 
+  // Exclude simulated (DRY_RUN) records — they skew real threshold evolution
+  perfData = perfData.filter(r => !r.simulated);
+  if (perfData.length < MIN_EVOLVE_POSITIONS) return null;
+
   const winners = perfData.filter((p) => p.pnl_pct > 0);
   const losers  = perfData.filter((p) => p.pnl_pct < -5);
 

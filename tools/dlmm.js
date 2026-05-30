@@ -30,6 +30,23 @@ import { normalizeMint } from "./wallet.js";
 import { appendDecision } from "../decision-log.js";
 import { agentMeridianJson, getAgentIdForRequests, getAgentMeridianHeaders } from "./agent-meridian.js";
 import { getAndClearStagedSignals } from "../signal-tracker.js";
+import { notifyClose } from "../telegram.js";
+
+// ─── Token price cache (DexScreener) ──────────────────────────
+const _tokenPriceCache = new Map();
+const TOKEN_PRICE_CACHE_TTL = 5 * 60_000;
+
+export async function fetchTokenPrice(pool_address) {
+  const cached = _tokenPriceCache.get(pool_address);
+  if (cached && Date.now() - cached.at < TOKEN_PRICE_CACHE_TTL) return cached.price;
+  try {
+    const res = await fetch(`https://api.dexscreener.com/latest/dex/pairs/solana/${pool_address}`);
+    if (!res.ok) return null;
+    const price = parseFloat((await res.json())?.pairs?.[0]?.priceUsd ?? 0) || null;
+    if (price) _tokenPriceCache.set(pool_address, { price, at: Date.now() });
+    return price;
+  } catch { return null; }
+}
 
 // ─── Lazy SDK loader ───────────────────────────────────────────
 // @meteora-ag/dlmm → @coral-xyz/anchor uses CJS directory imports
@@ -1171,7 +1188,7 @@ export async function getMyPositions({ force = false, silent = false, wallet_add
   if (process.env.DRY_RUN === "true" && useLocalWallet) {
     const tracked = getTrackedPositions(true); // openOnly
     const solPrice = parseFloat(process.env.DRY_RUN_SOL_PRICE ?? "170");
-    const positions = tracked.map((p) => {
+    const positions = await Promise.all(tracked.map(async (p) => {
       const ageMin = p.deployed_at
         ? Math.floor((Date.now() - new Date(p.deployed_at).getTime()) / 60000)
         : null;
@@ -1184,10 +1201,18 @@ export async function getMyPositions({ force = false, silent = false, wallet_add
       const simFees = initialUsd != null && feeRate > 0
         ? parseFloat((initialUsd * (feeRate / 100) * ageDays).toFixed(4))
         : 0;
-      // Simulated PnL: SOL value change (current vs entry sol price)
-      const currentValue = p.amount_sol != null
-        ? parseFloat((p.amount_sol * solPrice).toFixed(2))
-        : initialUsd;
+      // Simulated PnL: token price change (current vs entry token price) + fees
+      const currentTokenPrice = p.pool
+        ? await fetchTokenPrice(p.pool).catch(() => null)
+        : null;
+      const entryTokenPrice = p.entry_token_price_usd;
+      let currentValue = initialUsd;
+      if (currentTokenPrice && entryTokenPrice && entryTokenPrice > 0) {
+        const changePct = (currentTokenPrice - entryTokenPrice) / entryTokenPrice;
+        currentValue = initialUsd != null
+          ? parseFloat((initialUsd * (1 + changePct)).toFixed(2))
+          : null;
+      }
       const simPnlUsd = initialUsd != null && currentValue != null
         ? parseFloat((currentValue - initialUsd + simFees).toFixed(4))
         : 0;
@@ -1218,7 +1243,7 @@ export async function getMyPositions({ force = false, silent = false, wallet_add
         instruction:         p.instruction ?? null,
         simulated:           true,
       };
-    });
+    }));
     const result = {
       wallet: "DRY_RUN",
       total_positions: positions.length,
@@ -1569,7 +1594,79 @@ export async function claimFees({ position_address }) {
 export async function closePosition({ position_address, reason }) {
   position_address = normalizeMint(position_address);
   if (process.env.DRY_RUN === "true") {
-    return { dry_run: true, would_close: position_address, message: "DRY RUN — no transaction sent" };
+    const tracked = getTrackedPosition(position_address);
+    if (!tracked) return { dry_run: true, success: false, error: "Position not found in state" };
+
+    const ageMin = tracked.deployed_at
+      ? Math.floor((Date.now() - new Date(tracked.deployed_at).getTime()) / 60000)
+      : 0;
+    const solPrice = parseFloat(process.env.DRY_RUN_SOL_PRICE ?? "170");
+    const entrySolPrice = tracked.entry_sol_price ?? solPrice;
+    const initialUsd = tracked.initial_value_usd
+      ?? (tracked.amount_sol != null
+        ? parseFloat((tracked.amount_sol * entrySolPrice).toFixed(2))
+        : 0);
+
+    const currentTokenPrice = await fetchTokenPrice(tracked.pool).catch(() => null);
+    const entryTokenPrice = tracked.entry_token_price_usd;
+
+    const ageDays = ageMin / 1440;
+    const feeRate = tracked.fee_tvl_ratio ?? tracked.initial_fee_tvl_24h ?? 0;
+    const feesUsd = initialUsd > 0 && feeRate > 0
+      ? parseFloat((initialUsd * (feeRate / 100) * ageDays).toFixed(4))
+      : 0;
+
+    let pnlUsd = feesUsd;
+    let finalValueUsd = initialUsd;
+    if (currentTokenPrice && entryTokenPrice && entryTokenPrice > 0) {
+      const priceChangePct = (currentTokenPrice - entryTokenPrice) / entryTokenPrice;
+      pnlUsd = parseFloat((initialUsd * priceChangePct + feesUsd).toFixed(4));
+      finalValueUsd = parseFloat((initialUsd + initialUsd * priceChangePct).toFixed(2));
+    }
+
+    const pnlPct = initialUsd > 0
+      ? parseFloat(((pnlUsd / initialUsd) * 100).toFixed(2))
+      : 0;
+
+    recordClose(position_address, reason || "simulated close");
+
+    await recordPerformance({
+      position:          position_address,
+      pool:              tracked.pool,
+      pool_name:         tracked.pool_name || tracked.pool?.slice(0, 8),
+      base_mint:         tracked.base_mint,
+      strategy:          tracked.strategy,
+      bin_range:         tracked.bin_range,
+      bin_step:          tracked.bin_step ?? null,
+      volatility:        tracked.volatility ?? null,
+      fee_tvl_ratio:     tracked.fee_tvl_ratio ?? null,
+      organic_score:     tracked.organic_score ?? null,
+      amount_sol:        tracked.amount_sol,
+      fees_earned_usd:   feesUsd,
+      final_value_usd:   finalValueUsd,
+      initial_value_usd: initialUsd,
+      minutes_in_range:  ageMin,
+      minutes_held:      ageMin,
+      close_reason:      reason || "simulated close",
+      simulated:         true,
+    });
+
+    void notifyClose({
+      pair:   `[SIMULATED] ${tracked.pool_name || tracked.pool?.slice(0, 8)}`,
+      pnlUsd,
+      pnlPct,
+    });
+
+    log("dry_run", `closePosition simulated: ${position_address} pnl=${pnlUsd >= 0 ? "+" : ""}${pnlUsd} (${pnlPct}%)`);
+
+    return {
+      dry_run:  true,
+      success:  true,
+      position: position_address,
+      pnl_usd:  pnlUsd,
+      pnl_pct:  pnlPct,
+      fees_usd: feesUsd,
+    };
   }
 
   const tracked = getTrackedPosition(position_address);
