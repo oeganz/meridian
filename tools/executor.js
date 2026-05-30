@@ -599,7 +599,21 @@ export async function executeTool(name, args) {
       fakeResult.range_coverage = "N/A (dry run)";
       fakeResult.base_fee = null;
       fakeResult.txs = [];
-      try { await trackPosition(fakeResult, args); } catch { /* ignore */ }
+      try {
+        trackPosition({
+          position:         fakeResult.position_id,
+          pool:             args.pool_address,
+          pool_name:        fakeResult.pool_name,
+          strategy:         args.strategy ?? config.strategy.strategy,
+          bin_range:        { lower: null, upper: null },
+          amount_sol:       args.amount_y ?? args.amount_sol,
+          bin_step:         args.bin_step,
+          volatility:       args.volatility ?? null,
+          fee_tvl_ratio:    null,
+          organic_score:    null,
+          initial_value_usd: null,
+        });
+      } catch (e) { log("dry_run", `trackPosition failed: ${e.message}`); }
     }
     log("dry_run", `${name} mocked — no on-chain tx`);
     return fakeResult;
