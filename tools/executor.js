@@ -628,7 +628,7 @@ export async function executeTool(name, args) {
           volatility:                args.volatility ?? null,
           fee_tvl_ratio:             args.fee_tvl_ratio ?? null,
           organic_score:             args.organic_score ?? null,
-          initial_value_usd:         args.initial_value_usd ?? null,
+          initial_value_usd:         parseFloat(((args.amount_y ?? args.amount_sol ?? 0) * parseFloat(process.env.DRY_RUN_SOL_PRICE || "150")).toFixed(2)),
           entry_sol_price:           parseFloat(process.env.DRY_RUN_SOL_PRICE || "150"),
           base_mint:                 args.base_mint ?? null,
           entry_token_price_usd,
