@@ -1655,7 +1655,6 @@ export async function closePosition({ position_address, reason }) {
     }
 
     // Compound final value back into sim wallet
-    const solPrice = parseFloat(process.env.DRY_RUN_SOL_PRICE || "150");
     if (finalValueUsd > 0 && solPrice > 0) addSimSol(finalValueUsd / solPrice);
 
     const pnlPct = initialUsd > 0
