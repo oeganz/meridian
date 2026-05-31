@@ -23,7 +23,9 @@ import {
   getTrackedPositions,
   minutesOutOfRange,
   syncOpenPositions,
+  addSimSol,
 } from "../state.js";
+import { refreshSimSnapshots } from "../sim-poller.js";
 import { recordPerformance } from "../lessons.js";
 import { isBaseMintOnCooldown, isPoolOnCooldown } from "../pool-memory.js";
 import { normalizeMint } from "./wallet.js";
@@ -1201,17 +1203,26 @@ export async function getMyPositions({ force = false, silent = false, wallet_add
       const simFees = initialUsd != null && feeRate > 0
         ? parseFloat((initialUsd * (feeRate / 100) * ageDays).toFixed(4))
         : 0;
-      // Simulated PnL: token price change (current vs entry token price) + fees
-      const currentTokenPrice = p.pool
-        ? await fetchTokenPrice(p.pool).catch(() => null)
-        : null;
-      const entryTokenPrice = p.entry_token_price_usd;
+      // Simulated PnL: LP-aware model (token exposure grows lower→upper bound)
+      const snap = p.sim_snapshot;
       let currentValue = initialUsd;
-      if (currentTokenPrice && entryTokenPrice && entryTokenPrice > 0) {
-        const changePct = (currentTokenPrice - entryTokenPrice) / entryTokenPrice;
-        currentValue = initialUsd != null
-          ? parseFloat((initialUsd * (1 + changePct)).toFixed(2))
+      if (snap?.current_value_usd != null) {
+        currentValue = snap.current_value_usd;
+      } else if (p.sim_price_range_lower_usd && p.sim_price_range_upper_usd && p.entry_token_price_usd) {
+        // Fallback: compute inline if no snapshot yet (e.g. first poll hasn't run)
+        const currentTokenPrice = p.pool
+          ? await fetchTokenPrice(p.pool).catch(() => null)
           : null;
+        if (currentTokenPrice && initialUsd != null) {
+          const range = p.sim_price_range_upper_usd - p.sim_price_range_lower_usd;
+          const exposure = range > 0
+            ? Math.min(1, Math.max(0, (currentTokenPrice - p.sim_price_range_lower_usd) / range))
+            : 0;
+          currentValue = parseFloat((
+            initialUsd * (1 - exposure) +
+            initialUsd * exposure * (currentTokenPrice / p.entry_token_price_usd)
+          ).toFixed(2));
+        }
       }
       const simPnlUsd = initialUsd != null && currentValue != null
         ? parseFloat((currentValue - initialUsd + simFees).toFixed(4))
@@ -1616,13 +1627,36 @@ export async function closePosition({ position_address, reason }) {
       ? parseFloat((initialUsd * (feeRate / 100) * ageDays).toFixed(4))
       : 0;
 
+    // LP-aware close value: read snapshot or compute inline
     let pnlUsd = feesUsd;
     let finalValueUsd = initialUsd;
-    if (currentTokenPrice && entryTokenPrice && entryTokenPrice > 0) {
+    const snap = tracked.sim_snapshot;
+    if (snap?.current_value_usd != null) {
+      finalValueUsd = parseFloat((snap.current_value_usd + feesUsd).toFixed(2));
+      pnlUsd = parseFloat((finalValueUsd - initialUsd).toFixed(4));
+    } else if (
+      tracked.sim_price_range_lower_usd &&
+      tracked.sim_price_range_upper_usd &&
+      entryTokenPrice && currentTokenPrice
+    ) {
+      const range = tracked.sim_price_range_upper_usd - tracked.sim_price_range_lower_usd;
+      const exposure = range > 0
+        ? Math.min(1, Math.max(0, (currentTokenPrice - tracked.sim_price_range_lower_usd) / range))
+        : 0;
+      const lpValue = initialUsd * (1 - exposure) +
+        initialUsd * exposure * (currentTokenPrice / entryTokenPrice);
+      finalValueUsd = parseFloat((lpValue + feesUsd).toFixed(2));
+      pnlUsd = parseFloat((finalValueUsd - initialUsd).toFixed(4));
+    } else if (currentTokenPrice && entryTokenPrice && entryTokenPrice > 0) {
+      // Legacy fallback for positions tracked before LP upgrade
       const priceChangePct = (currentTokenPrice - entryTokenPrice) / entryTokenPrice;
       pnlUsd = parseFloat((initialUsd * priceChangePct + feesUsd).toFixed(4));
       finalValueUsd = parseFloat((initialUsd + initialUsd * priceChangePct).toFixed(2));
     }
+
+    // Compound final value back into sim wallet
+    const solPrice = parseFloat(process.env.DRY_RUN_SOL_PRICE || "150");
+    if (finalValueUsd > 0 && solPrice > 0) addSimSol(finalValueUsd / solPrice);
 
     const pnlPct = initialUsd > 0
       ? parseFloat(((pnlUsd / initialUsd) * 100).toFixed(2))

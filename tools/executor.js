@@ -13,7 +13,7 @@ import {
 import { getWalletBalances, swapToken } from "./wallet.js";
 import { studyTopLPers } from "./study.js";
 import { addLesson, clearAllLessons, clearPerformance, removeLessonsByKeyword, getPerformanceHistory, pinLesson, unpinLesson, listLessons } from "../lessons.js";
-import { setPositionInstruction, trackPosition } from "../state.js";
+import { setPositionInstruction, trackPosition, deductSimSol } from "../state.js";
 
 import { getPoolMemory, addPoolNote } from "../pool-memory.js";
 import { addStrategy, listStrategies, getStrategy, setActiveStrategy, removeStrategy } from "../strategy-library.js";
@@ -608,22 +608,37 @@ export async function executeTool(name, args) {
         const entry_token_price_usd = args.pool_address
           ? await fetchTokenPrice(args.pool_address).catch(() => null)
           : null;
+
+        // Compute LP price range from bin geometry
+        const bin_step = args.bin_step ?? 100;
+        const bins_below = args.bin_range?.count ?? args.bins_below ?? 10;
+        const sim_price_range_upper_usd = entry_token_price_usd; // active bin = upper bound
+        const sim_price_range_lower_usd = entry_token_price_usd != null
+          ? entry_token_price_usd * Math.pow(1 + bin_step / 10000, -bins_below)
+          : null;
+
         trackPosition({
-          position:          fakeResult.position_id,
-          pool:              args.pool_address,
-          pool_name:         fakeResult.pool_name,
-          strategy:          args.strategy ?? config.strategy.strategy,
-          bin_range:         { lower: null, upper: null },
-          amount_sol:        args.amount_y ?? args.amount_sol,
-          bin_step:          args.bin_step,
-          volatility:        args.volatility ?? null,
-          fee_tvl_ratio:     args.fee_tvl_ratio ?? null,
-          organic_score:     args.organic_score ?? null,
-          initial_value_usd: args.initial_value_usd ?? null,
-          entry_sol_price:   parseFloat(process.env.DRY_RUN_SOL_PRICE ?? "170"),
-          base_mint:         args.base_mint ?? null,
+          position:                  fakeResult.position_id,
+          pool:                      args.pool_address,
+          pool_name:                 fakeResult.pool_name,
+          strategy:                  args.strategy ?? config.strategy.strategy,
+          bin_range:                 { lower: null, upper: null, count: bins_below },
+          amount_sol:                args.amount_y ?? args.amount_sol,
+          bin_step,
+          volatility:                args.volatility ?? null,
+          fee_tvl_ratio:             args.fee_tvl_ratio ?? null,
+          organic_score:             args.organic_score ?? null,
+          initial_value_usd:         args.initial_value_usd ?? null,
+          entry_sol_price:           parseFloat(process.env.DRY_RUN_SOL_PRICE || "150"),
+          base_mint:                 args.base_mint ?? null,
           entry_token_price_usd,
+          sim_price_range_lower_usd,
+          sim_price_range_upper_usd,
         });
+
+        // Deduct from sim wallet
+        const amount = args.amount_y ?? args.amount_sol ?? 0;
+        if (amount > 0) deductSimSol(amount);
       } catch (e) { log("dry_run", `trackPosition failed: ${e.message}`); }
     }
     log("dry_run", `${name} mocked — no on-chain tx`);

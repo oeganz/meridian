@@ -71,6 +71,9 @@ export function trackPosition({
   base_mint = null,
   entry_token_price_usd = null,
   signal_snapshot = null,
+  sim_price_range_lower_usd = null,
+  sim_price_range_upper_usd = null,
+  sim_snapshot = null,
 }) {
   const state = load();
   state.positions[position] = {
@@ -92,6 +95,9 @@ export function trackPosition({
     base_mint,
     entry_token_price_usd,
     signal_snapshot: signal_snapshot || null,
+    sim_price_range_lower_usd,
+    sim_price_range_upper_usd,
+    sim_snapshot,
     deployed_at: new Date().toISOString(),
     out_of_range_since: null,
     last_claim_at: null,
@@ -516,4 +522,54 @@ export function syncOpenPositions(active_addresses) {
   }
 
   if (changed) save(state);
+}
+
+// ─── Sim Wallet (DRY_RUN) ─────────────────────────────────────
+
+/**
+ * Initialize sim wallet balance on first boot. No-op if already set.
+ */
+export function initSimWallet() {
+  const s = load();
+  if (s.sim_sol_balance == null) {
+    s.sim_sol_balance = parseFloat(process.env.DRY_RUN_SOL || "1.5");
+    save(s);
+    log("state", `Sim wallet initialized: ${s.sim_sol_balance} SOL`);
+  }
+}
+
+export function getSimSolBalance() {
+  return load().sim_sol_balance ?? parseFloat(process.env.DRY_RUN_SOL || "1.5");
+}
+
+export function deductSimSol(amount) {
+  const s = load();
+  s.sim_sol_balance = Math.max(0, (s.sim_sol_balance ?? 0) - amount);
+  save(s);
+  log("state", `Sim wallet deducted ${amount} SOL → ${s.sim_sol_balance.toFixed(4)} SOL`);
+}
+
+export function addSimSol(amount) {
+  const s = load();
+  s.sim_sol_balance = (s.sim_sol_balance ?? 0) + amount;
+  save(s);
+  log("state", `Sim wallet credited ${amount.toFixed(4)} SOL → ${s.sim_sol_balance.toFixed(4)} SOL`);
+}
+
+export function updateSimSnapshot(positionId, snapshot) {
+  const s = load();
+  if (s.positions?.[positionId]) {
+    s.positions[positionId].sim_snapshot = snapshot;
+    save(s);
+  }
+}
+
+/**
+ * Return all open positions as array of {id, ...fields} for sim-poller.
+ */
+export function getOpenPositions() {
+  const s = load();
+  return Object.entries(s.positions || {})
+    .filter(([, v]) => !v.closed)
+    .map(([id, v]) => ({ id, ...v }));
 }

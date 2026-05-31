@@ -8,6 +8,8 @@ import {
 import bs58 from "bs58";
 import { log } from "../logger.js";
 import { config } from "../config.js";
+import { getSimSolBalance } from "../state.js";
+import { refreshSimSnapshots } from "../sim-poller.js";
 
 let _connection = null;
 let _wallet = null;
@@ -60,8 +62,9 @@ export async function getWalletBalances() {
   if (process.env.DRY_RUN === "true") {
     let walletAddress = null;
     try { walletAddress = getWallet().publicKey.toString(); } catch { /* ok in dry run */ }
-    const simSol = parseFloat(process.env.DRY_RUN_SOL || "0.3");
-    const simPrice = 170;
+    const simSol = getSimSolBalance();
+    const simPrice = parseFloat(process.env.DRY_RUN_SOL_PRICE || "150");
+    await refreshSimSnapshots().catch(() => {});
     return {
       wallet: walletAddress,
       sol: simSol,
