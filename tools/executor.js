@@ -605,9 +605,16 @@ export async function executeTool(name, args) {
       fakeResult.base_fee = null;
       fakeResult.txs = [];
       try {
-        const entry_token_price_usd = args.pool_address
-          ? await fetchTokenPrice(args.pool_address).catch(() => null)
-          : null;
+        const [entry_token_price_usd, meteoraPool] = await Promise.all([
+          args.pool_address ? fetchTokenPrice(args.pool_address).catch(() => null) : null,
+          args.pool_address
+            ? fetch(`https://dlmm.datapi.meteora.ag/pools/${args.pool_address}`)
+                .then(r => r.ok ? r.json() : null).catch(() => null)
+            : null,
+        ]);
+
+        // Grab real active bin from Meteora API for bin-space validation
+        const active_bin_at_deploy = meteoraPool?.active_bin_id ?? meteoraPool?.activeBinId ?? null;
 
         // Compute LP price range from bin geometry
         const bin_step = args.bin_step ?? 100;
@@ -625,6 +632,7 @@ export async function executeTool(name, args) {
           bin_range:                 { lower: null, upper: null, count: bins_below },
           amount_sol:                args.amount_y ?? args.amount_sol,
           bin_step,
+          active_bin:                active_bin_at_deploy,
           volatility:                args.volatility ?? null,
           fee_tvl_ratio:             args.fee_tvl_ratio ?? null,
           organic_score:             args.organic_score ?? null,
