@@ -105,7 +105,7 @@ export function startSimPoller() {
     console.error("[sim-poller] boot refresh failed:", err.message)
   );
 
-  cron.schedule("*/5 * * * *", () => {
+  cron.schedule("* * * * *", () => {
     refreshSimSnapshots().catch((err) =>
       console.error("[sim-poller] refresh failed:", err.message)
     );
