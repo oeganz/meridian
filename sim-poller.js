@@ -23,14 +23,27 @@ const HISTORY_PATH = path.resolve("./sim-history.jsonl");
  */
 export async function computeLpPnl(pos) {
   const {
-    initial_value_usd: initialUsd,
     entry_token_price_usd: entryPrice,
     sim_price_range_lower_usd: lowerUsd,
     sim_price_range_upper_usd: upperUsd,
     pool,
+    amount_sol,
   } = pos;
 
-  if (!pool || !entryPrice || !lowerUsd || !upperUsd || initialUsd == null) return null;
+  if (!pool || !entryPrice || !lowerUsd || !upperUsd) return null;
+
+  // Sanitize initial_value_usd — recompute from amount_sol if missing or implausible.
+  // Implausible = implied SOL price > $500 (bad LLM-provided value, pre-June fix).
+  const solPrice = parseFloat(process.env.DRY_RUN_SOL_PRICE || "150");
+  const expectedUsd = amount_sol ? parseFloat((amount_sol * solPrice).toFixed(2)) : null;
+  let initialUsd = pos.initial_value_usd;
+  if (initialUsd == null) {
+    if (!expectedUsd) return null;
+    initialUsd = expectedUsd;
+  } else if (amount_sol && initialUsd / amount_sol > 500) {
+    // Implied SOL price > $500 — bad data, override
+    initialUsd = expectedUsd;
+  }
 
   const currentPrice = await fetchTokenPrice(pool).catch(() => null);
   if (!currentPrice) return null;
