@@ -1,12 +1,21 @@
 /**
  * sim-poller.js — LP-aware PnL simulation for DRY_RUN positions.
  *
- * DLMM single-sided SOL deploy: starts at 0% token exposure.
- * Token exposure grows linearly from 0→1 as price moves lower→upper bound.
+ * Single-sided SOL deploy: SOL deposited in bins BELOW entry price.
+ * upper = entry price (active bin at deploy), lower = N bins below.
+ * At deploy: 0% base token. As price drops → SOL swapped into base token.
  *
- *   token_exposure = clamp((currentPrice - lowerUsd) / (upperUsd - lowerUsd), 0, 1)
- *   currentValue   = initialUsd * (1 - exposure)
- *                  + initialUsd * exposure * (currentPrice / entryPrice)
+ * Exposure grows as price falls from upper → lower:
+ *   token_exposure = clamp((upperUsd - currentPrice) / (upperUsd - lowerUsd), 0, 1)
+ *
+ * Tokens acquired incrementally at avg price = midpoint of crossed bins:
+ *   in-range:    avg_acq = (upperUsd + currentPrice) / 2
+ *   below-range: avg_acq = (upperUsd + lowerUsd) / 2
+ *
+ * Value:
+ *   sol_portion   = initialUsd * (1 - exposure)          — SOL held, flat in USD
+ *   token_portion = (initialUsd * exposure / avg_acq) * currentPrice
+ *   above-range:  all SOL → value = initialUsd (flat, no token exposure)
  */
 
 import cron from "node-cron";
@@ -48,17 +57,30 @@ export async function computeLpPnl(pos) {
   const currentPrice = await fetchTokenPrice(pool).catch(() => null);
   if (!currentPrice) return null;
 
+  // upperUsd = entryPrice (active bin at deploy). Exposure grows as price drops.
   const range = upperUsd - lowerUsd;
   const token_exposure =
-    range > 0 ? Math.min(1, Math.max(0, (currentPrice - lowerUsd) / range)) : 0;
+    range > 0 ? Math.min(1, Math.max(0, (upperUsd - currentPrice) / range)) : 0;
+
+  // Avg price at which SOL was converted to base token across crossed bins.
+  // In-range: only bins from currentPrice to upperUsd have been crossed.
+  // Below-range: all bins crossed, full range.
+  const avg_acquisition_price =
+    token_exposure > 0
+      ? currentPrice >= lowerUsd
+        ? (upperUsd + currentPrice) / 2   // in range: midpoint of crossed bins
+        : (upperUsd + lowerUsd) / 2        // below range: midpoint of full range
+      : upperUsd; // unused when exposure=0, but avoid div-by-zero
 
   const sol_portion = initialUsd * (1 - token_exposure);
-  const token_portion = initialUsd * token_exposure * (currentPrice / entryPrice);
+  const base_tokens = token_exposure > 0 ? (initialUsd * token_exposure) / avg_acquisition_price : 0;
+  const token_portion = base_tokens * currentPrice;
   const current_value_usd = parseFloat((sol_portion + token_portion).toFixed(4));
   const pnl_usd = parseFloat((current_value_usd - initialUsd).toFixed(4));
 
   return {
     token_exposure: parseFloat(token_exposure.toFixed(4)),
+    avg_acquisition_price: parseFloat(avg_acquisition_price.toFixed(6)),
     current_price_usd: currentPrice,
     current_value_usd,
     pnl_usd,
