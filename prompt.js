@@ -113,7 +113,7 @@ HARD RULE (no exceptions):
 - fees_sol < ${config.screening.minTokenFeesSol} → SKIP. Low fees = bundled/scam. Smart wallets do NOT override this.
 - bots > ${config.screening.maxBotHoldersPct}% → already hard-filtered before you see the candidate list.
 ${process.env.DRY_RUN === "true" ? `
-⚠️ DRY RUN MODE: Audit APIs (holders, token info) are unavailable. When fees_sol, top10%, or bots% show "?" due to API errors, treat them as UNKNOWN (not as failing). Deploy the best available candidate based on organic score, fee_tvl_ratio, volume, and OKX flags. Missing audit data is NOT a skip reason in dry run — only deploy if fee_tvl_ratio >= 0.5 and organic >= 65 and no OKX rugpull/wash flags. Narrative and smart wallets are optional in dry run.
+⚠️ DRY RUN MODE: Audit APIs (holders, token info) are unavailable. When fees_sol, top10%, or bots% show "?" due to API errors, treat them as UNKNOWN (not as failing). Deploy the best available candidate based on organic score, fee_tvl_ratio, volume, and OKX flags. Missing audit data is NOT a skip reason in dry run — only deploy if fee_tvl_ratio >= ${config.screening.minFeeActiveTvlRatio} and organic >= ${config.screening.minOrganic} and no OKX rugpull/wash flags. Narrative and smart wallets are optional in dry run.
 ` : ""}
 RISK SIGNALS (guidelines — use judgment):
 - top10 > 60% → concentrated, risky
