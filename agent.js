@@ -108,6 +108,8 @@ const DECISION_EXPLANATION_INTENTS = /\b(why did you|why'd you|why was (?:this|t
 
 function shouldRequireRealToolUse(goal, agentType, interactive = false) {
   if (agentType === "MANAGER") return false;
+  // SCREENER with pre-loaded candidates may legitimately return NO DEPLOY without tool calls
+  if (agentType === "SCREENER") return false;
   if (DECISION_EXPLANATION_INTENTS.test(goal)) return false;
   if (CONFIG_READ_ONLY_INTENTS.test(goal)) return false;
   if (MUTATING_TOOL_INTENTS.test(goal)) return true;
