@@ -275,6 +275,7 @@ async function fetchDexScreenerPrice(tokenAddress) {
       .sort((a, b) => (b.liquidity?.usd ?? 0) - (a.liquidity?.usd ?? 0))[0];
     if (!pair) return null;
     const price = parseFloat(pair.priceUsd || 0);
+    // Note: volume_1h is raw USD amount (same semantics as OKX path), not a percentage.
     return {
       price,
       ath: null,
@@ -312,9 +313,10 @@ export async function getFullTokenAnalysis(tokenAddress, chainIndex = CHAIN_SOLA
     getClusterList(tokenAddress, chainIndex),
     getPriceInfo(tokenAddress, chainIndex),
   ]);
+  const priceValue = price.status === "fulfilled" ? price.value : null;
   return {
     advanced: advanced.status === "fulfilled" ? advanced.value : null,
     clusters: clusters.status === "fulfilled" ? clusters.value : [],
-    price:    price.status    === "fulfilled" ? price.value    : null,
+    price: priceValue?.data_unavailable ? null : priceValue,
   };
 }
