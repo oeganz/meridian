@@ -658,7 +658,10 @@ export async function getTopCandidates({ limit = 10 } = {}) {
         eligible[i].is_rugpull = risk.is_rugpull;
         eligible[i].is_wash    = risk.is_wash;
       }
-      if (price) {
+      if (price?.data_unavailable) {
+        log("okx", `Price unavailable (OKX + DexScreener both failed) — skipping ${eligible[i].name}`);
+        eligible[i]._skip_no_price = true;
+      } else if (price) {
         eligible[i].price_vs_ath_pct = price.price_vs_ath_pct;
         eligible[i].ath              = price.ath;
       }
@@ -669,6 +672,15 @@ export async function getTopCandidates({ limit = 10 } = {}) {
         eligible[i].top_cluster_hold_pct = clusters[0]?.holding_pct ?? null;
       }
     }
+    // No-price circuit breaker — skip pools where both OKX and DexScreener failed
+    eligible.splice(0, eligible.length, ...eligible.filter((p) => {
+      if (p._skip_no_price) {
+        pushFilteredReason(filteredOut, p, "price data unavailable (OKX + DexScreener)");
+        return false;
+      }
+      return true;
+    }));
+
     // Wash trading hard filter — fake volume = misleading fee yield
     eligible.splice(0, eligible.length, ...eligible.filter((p) => {
       if (p.is_wash) {

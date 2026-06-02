@@ -238,7 +238,10 @@ export async function getPriceInfo(tokenAddress, chainIndex = CHAIN_SOLANA) {
     { chainIndex, tokenContractAddress: tokenAddress },
   ]);
   const d = Array.isArray(data) ? data[0] : data;
-  if (!d) return null;
+  if (!d) {
+    const fallback = await fetchDexScreenerPrice(tokenAddress);
+    return fallback ?? { data_unavailable: true };
+  }
   const price    = parseFloat(d.price    || 0);
   const maxPrice = parseFloat(d.maxPrice || 0);
   return {
@@ -254,6 +257,41 @@ export async function getPriceInfo(tokenAddress, chainIndex = CHAIN_SOLANA) {
     market_cap:       pct(d.marketCap),
     liquidity:        pct(d.liquidity),
   };
+}
+
+/**
+ * DexScreener fallback — returns same shape as getPriceInfo or null.
+ */
+async function fetchDexScreenerPrice(tokenAddress) {
+  try {
+    const url = `https://api.dexscreener.com/latest/dex/tokens/${tokenAddress}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+    if (!res.ok) return null;
+    const json = await res.json();
+    const pairs = Array.isArray(json?.pairs) ? json.pairs : [];
+    // Pick highest-liquidity Solana pair
+    const pair = pairs
+      .filter((p) => p?.chainId === "solana" && p?.liquidity?.usd > 0)
+      .sort((a, b) => (b.liquidity?.usd ?? 0) - (a.liquidity?.usd ?? 0))[0];
+    if (!pair) return null;
+    const price = parseFloat(pair.priceUsd || 0);
+    return {
+      price,
+      ath: null,
+      atl: null,
+      price_vs_ath_pct: null,
+      price_change_5m: pct(pair.priceChange?.m5),
+      price_change_1h: pct(pair.priceChange?.h1),
+      volume_5m: null,
+      volume_1h: pct(pair.volume?.h1),
+      holders: null,
+      market_cap: pct(pair.marketCap),
+      liquidity: pct(pair.liquidity?.usd),
+      _source: "dexscreener",
+    };
+  } catch {
+    return null;
+  }
 }
 
 /**
