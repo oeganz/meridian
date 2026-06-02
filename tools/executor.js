@@ -13,7 +13,7 @@ import {
 import { getWalletBalances, swapToken } from "./wallet.js";
 import { studyTopLPers } from "./study.js";
 import { addLesson, clearAllLessons, clearPerformance, removeLessonsByKeyword, getPerformanceHistory, pinLesson, unpinLesson, listLessons } from "../lessons.js";
-import { setPositionInstruction, trackPosition, deductSimSol } from "../state.js";
+import { setPositionInstruction, trackPosition, deductSimSol, getSimSolBalance } from "../state.js";
 
 import { getPoolMemory, addPoolNote } from "../pool-memory.js";
 import { addStrategy, listStrategies, getStrategy, setActiveStrategy, removeStrategy } from "../strategy-library.js";
@@ -862,8 +862,18 @@ async function runSafetyChecks(name, args) {
         };
       }
 
-      // Check SOL balance
-      if (process.env.DRY_RUN !== "true") {
+      // Check SOL balance (sim wallet in DRY_RUN, real wallet in live)
+      if (process.env.DRY_RUN === "true") {
+        const simBalance = getSimSolBalance();
+        const gasReserve = config.management.gasReserve;
+        const minRequired = amountY + gasReserve;
+        if (simBalance < minRequired) {
+          return {
+            pass: false,
+            reason: `Sim wallet insufficient: ${simBalance.toFixed(3)} SOL available, need ${minRequired.toFixed(3)} SOL (${amountY} deploy + ${gasReserve} gas reserve).`,
+          };
+        }
+      } else {
         const balance = await getWalletBalances();
         const gasReserve = config.management.gasReserve;
         const minRequired = amountY + gasReserve;
