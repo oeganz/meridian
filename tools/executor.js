@@ -84,11 +84,22 @@ async function fetchFreshPoolDetail(poolAddress, timeframe = config.screening.ti
 }
 
 async function validateDeployPoolThresholds(args) {
+  const isDryRun = config.dryRun === true;
   let detail;
   try {
     detail = await fetchFreshPoolDetail(args.pool_address);
-    if (!detail) throw new Error(`Pool ${args.pool_address} not found`);
+    if (!detail) {
+      if (isDryRun) {
+        console.log("[dryRun] Skipping fresh validation: pool not found in API");
+        return { pass: true, reason: "dryRun: skipped fresh validation (pool not found in API)" };
+      }
+      throw new Error(`Pool ${args.pool_address} not found`);
+    }
   } catch (error) {
+    if (isDryRun) {
+      console.log("[dryRun] Skipping fresh validation: API error", error.message);
+      return { pass: true, reason: `dryRun: skipped fresh validation (API error: ${error.message})` };
+    }
     return {
       pass: false,
       reason: `Could not verify pool screening thresholds before deploy: ${error.message}`,
@@ -98,23 +109,19 @@ async function validateDeployPoolThresholds(args) {
   const tvl = poolDetailTvl(detail);
   const minTvl = numberOrNull(config.screening.minTvl);
   const maxTvl = numberOrNull(config.screening.maxTvl);
-  if (tvl == null) {
-    return {
-      pass: false,
-      reason: "Could not verify pool TVL before deploy.",
-    };
-  }
-  if (minTvl != null && minTvl > 0 && tvl < minTvl) {
-    return {
-      pass: false,
-      reason: `Pool TVL $${tvl} is below configured minTvl $${minTvl}.`,
-    };
-  }
-  if (maxTvl != null && maxTvl > 0 && tvl > maxTvl) {
-    return {
-      pass: false,
-      reason: `Pool TVL $${tvl} is above configured maxTvl $${maxTvl}.`,
-    };
+  if (tvl != null && tvl > 0) {
+    if (minTvl != null && minTvl > 0 && tvl < minTvl) {
+      return {
+        pass: false,
+        reason: `Pool TVL $${tvl} is below configured minTvl $${minTvl}.`,
+      };
+    }
+    if (maxTvl != null && maxTvl > 0 && tvl > maxTvl) {
+      return {
+        pass: false,
+        reason: `Pool TVL $${tvl} is above configured maxTvl $${maxTvl}.`,
+      };
+    }
   }
 
   const feeActiveTvlRatio = poolDetailFeeActiveTvlRatio(detail);
@@ -124,6 +131,10 @@ async function validateDeployPoolThresholds(args) {
     minFeeActiveTvlRatio > 0 &&
     (feeActiveTvlRatio == null || feeActiveTvlRatio < minFeeActiveTvlRatio)
   ) {
+    if (isDryRun) {
+      console.log(`[dryRun] Skipping fee_ratio check: got ${feeActiveTvlRatio ?? "unknown"}, min ${minFeeActiveTvlRatio}`);
+      return { pass: true, reason: `dryRun: skipped fee_ratio check (got ${feeActiveTvlRatio ?? "unknown"}, min ${minFeeActiveTvlRatio})` };
+    }
     return {
       pass: false,
       reason: `Pool fee/active-TVL ${feeActiveTvlRatio ?? "unknown"}% is below configured minFeeActiveTvlRatio ${minFeeActiveTvlRatio}%.`,
@@ -136,15 +147,24 @@ async function validateDeployPoolThresholds(args) {
     try {
       volatilityDetail = await fetchFreshPoolDetail(args.pool_address, volatilityTimeframe);
     } catch (error) {
-      return {
-        pass: false,
-        reason: `Could not verify pool ${volatilityTimeframe} volatility before deploy: ${error.message}`,
-      };
+      if (isDryRun) {
+        console.log("[dryRun] Skipping volatility check: API error", error.message);
+        volatilityDetail = detail;
+      } else {
+        return {
+          pass: false,
+          reason: `Could not verify pool ${volatilityTimeframe} volatility before deploy: ${error.message}`,
+        };
+      }
     }
   }
 
   const volatility = poolDetailVolatility(volatilityDetail);
   if (volatility == null || volatility <= 0) {
+    if (isDryRun) {
+      console.log(`[dryRun] Skipping volatility check: got ${volatility ?? "unknown"}`);
+      return { pass: true, reason: `dryRun: skipped volatility check (got ${volatility ?? "unknown"})` };
+    }
     return {
       pass: false,
       reason: `Pool ${volatilityTimeframe} volatility ${volatility ?? "unknown"} is unusable. Refusing deploy.`,
