@@ -1627,18 +1627,16 @@ export async function closePosition({ position_address, reason }) {
       ? parseFloat((initialUsd * (feeRate / 100) * ageDays).toFixed(4))
       : 0;
 
-    // LP-aware close value: read snapshot or compute inline
+    // LP-aware close value: prefer fresh price over stale snapshot
     let pnlUsd = feesUsd;
     let finalValueUsd = initialUsd;
     const snap = tracked.sim_snapshot;
-    if (snap?.current_value_usd != null) {
-      finalValueUsd = parseFloat((snap.current_value_usd + feesUsd).toFixed(2));
-      pnlUsd = parseFloat((finalValueUsd - initialUsd).toFixed(4));
-    } else if (
+    if (
       tracked.sim_price_range_lower_usd &&
       tracked.sim_price_range_upper_usd &&
       entryTokenPrice && currentTokenPrice
     ) {
+      // Fresh price available — compute LP value from current market price
       const range = tracked.sim_price_range_upper_usd - tracked.sim_price_range_lower_usd;
       const exposure = range > 0
         ? Math.min(1, Math.max(0, (currentTokenPrice - tracked.sim_price_range_lower_usd) / range))
@@ -1648,10 +1646,14 @@ export async function closePosition({ position_address, reason }) {
       finalValueUsd = parseFloat((lpValue + feesUsd).toFixed(2));
       pnlUsd = parseFloat((finalValueUsd - initialUsd).toFixed(4));
     } else if (currentTokenPrice && entryTokenPrice && entryTokenPrice > 0) {
-      // Legacy fallback for positions tracked before LP upgrade
+      // Legacy fallback: simple price change
       const priceChangePct = (currentTokenPrice - entryTokenPrice) / entryTokenPrice;
       pnlUsd = parseFloat((initialUsd * priceChangePct + feesUsd).toFixed(4));
       finalValueUsd = parseFloat((initialUsd + initialUsd * priceChangePct).toFixed(2));
+    } else if (snap?.current_value_usd != null) {
+      // Fallback to stale snapshot only if no fresh price available
+      finalValueUsd = parseFloat((snap.current_value_usd + feesUsd).toFixed(2));
+      pnlUsd = parseFloat((finalValueUsd - initialUsd).toFixed(4));
     }
 
     // Compound final value back into sim wallet
