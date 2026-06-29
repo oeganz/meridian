@@ -505,9 +505,15 @@ export async function runScreeningCycle({ silent = false } = {}) {
       }
       const botPct = ti?.audit?.bot_holders_pct;
       const maxBotHoldersPct = config.screening.maxBotHoldersPct;
-      if (botPct != null && maxBotHoldersPct != null && botPct > maxBotHoldersPct) {
-        log("screening", `Bot-holder filter: dropped ${pool.name} — bots ${botPct}% > ${maxBotHoldersPct}%`);
-        filteredOut.push({ name: pool.name, reason: `bot holders ${botPct}% > ${maxBotHoldersPct}%` });
+      const BOT_BUFFER = 2; // reject within 2% of threshold (catches borderline cases like 33-35%)
+      if (botPct == null) {
+        log("screening", `Bot-holder filter: dropped ${pool.name} — no bot-holder data available`);
+        filteredOut.push({ name: pool.name, reason: `no bot-holder data` });
+        return false;
+      }
+      if (maxBotHoldersPct != null && botPct >= maxBotHoldersPct - BOT_BUFFER) {
+        log("screening", `Bot-holder filter: dropped ${pool.name} — bots ${botPct}% >= ${maxBotHoldersPct - BOT_BUFFER}% (buffer)`);
+        filteredOut.push({ name: pool.name, reason: `bot holders ${botPct}% >= buffer threshold (${maxBotHoldersPct - BOT_BUFFER}%)` });
         return false;
       }
       return true;
@@ -1715,8 +1721,10 @@ function getLoneCandidateSkipReason({ pool, sw, n, ti } = {}) {
   if (Number.isFinite(top10Pct) && top10Pct > config.screening.maxTop10Pct) {
     return `top10 concentration ${top10Pct}% above maximum ${config.screening.maxTop10Pct}%`;
   }
-  if (Number.isFinite(botPct) && botPct > config.screening.maxBotHoldersPct) {
-    return `bot holders ${botPct}% above maximum ${config.screening.maxBotHoldersPct}%`;
+  const BOT_BUFFER = 2;
+  if (!Number.isFinite(botPct)) return "no bot-holder data available";
+  if (botPct >= config.screening.maxBotHoldersPct - BOT_BUFFER) {
+    return `bot holders ${botPct}% within buffer of maximum ${config.screening.maxBotHoldersPct}%`;
   }
   if (!hasNarrative && smartWalletCount === 0) return "only candidate has no narrative and no smart-wallet confirmation";
   return null;
