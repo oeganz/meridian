@@ -903,6 +903,16 @@ async function runSafetyChecks(name, args) {
             reason: `Insufficient SOL: have ${balance.sol} SOL, need ${minRequired} SOL (${amountY} deploy + ${gasReserve} gas reserve).`,
           };
         }
+
+        // Capital floor guard: refuse NEW deploys if wallet at/below floor.
+        // Manages/closes still work; only new-position entries are blocked.
+        const capitalFloor = config.risk?.capitalFloorSol ?? 0.6;
+        if (capitalFloor > 0 && balance.sol < capitalFloor) {
+          return {
+            pass: false,
+            reason: `Capital floor: wallet ${balance.sol} SOL is at/below floor ${capitalFloor} SOL. New deploys paused — reassess before adding risk.`,
+          };
+        }
       }
 
       return { pass: true };

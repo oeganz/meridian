@@ -57,6 +57,7 @@ export const config = {
   risk: {
     maxPositions:    u.maxPositions    ?? 3,
     maxDeployAmount: u.maxDeployAmount ?? 50,
+    capitalFloorSol: u.capitalFloorSol ?? 0.6, // pause new deploys if wallet <= this
   },
 
   // ─── Pool Screening Thresholds ───────────
