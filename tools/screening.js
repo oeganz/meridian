@@ -117,6 +117,9 @@ function getRawPoolScreeningRejectReason(pool, s) {
   if (!isUsableVolatility(volatility)) {
     return `volatility ${volatility ?? "unknown"} is unusable`;
   }
+  if (s.maxVolatility != null && volatility > s.maxVolatility) {
+    return `volatility ${volatility} above maxVolatility ${s.maxVolatility}`;
+  }
   if (baseOrganic == null || baseOrganic < s.minOrganic) {
     return `base organic ${baseOrganic ?? "unknown"} below minOrganic ${s.minOrganic}`;
   }
@@ -395,8 +398,6 @@ export async function discoverPools({
     `volume>=${s.minVolume}`,
     `tvl>=${s.minTvl}`,
     s.maxTvl != null ? `tvl<=${s.maxTvl}` : null,
-    `dlmm_bin_step>=${s.minBinStep}`,
-    `dlmm_bin_step<=${s.maxBinStep}`,
     `fee_active_tvl_ratio>=${s.minFeeActiveTvlRatio}`,
     `base_token_organic_score>=${s.minOrganic}`,
     `quote_token_organic_score>=${s.minQuoteOrganic}`,
