@@ -191,13 +191,24 @@ export function recordPoolDeploy(poolAddress, deployData) {
     const rawScope = String(config.management.repeatDeployCooldownScope || "token").toLowerCase();
     const scope = ["pool", "token", "both"].includes(rawScope) ? rawScope : "token";
     const recentRepeatDeploys = entry.deploys.slice(-triggerCount);
-    const repeatedFeeGeneratingDeploys =
+    // When repeatDeployCooldownRequireFees=false (default), ANY close counts
+    // toward the trigger. With rapid pump-outs many closes earn ~0 fees, so
+    // gating on fees left the system free to redeploy the same pool infinitely.
+    // Opt-in gate via the existing minFeeEarnedPct config when true.
+    const requireFees = config.management.repeatDeployCooldownRequireFees === true;
+    const repeatedDeploys =
       cooldownHours > 0 &&
       recentRepeatDeploys.length >= triggerCount &&
-      recentRepeatDeploys.every((d) => d.pnl_pct != null && isFeeGeneratingDeploy(d));
+      recentRepeatDeploys.every((d) => {
+        if (d.pnl_pct == null) return false;
+        if (!requireFees) return true;
+        return isFeeGeneratingDeploy(d);
+      });
 
-    if (repeatedFeeGeneratingDeploys) {
-      const reason = `repeat fee-generating deploys (${triggerCount}x)`;
+    if (repeatedDeploys) {
+      const reason = requireFees
+        ? `repeat fee-generating deploys (${triggerCount}x)`
+        : `repeat deploys (${triggerCount}x)`;
       if (scope === "pool" || scope === "both" || !entry.base_mint) {
         const poolCooldownUntil = setPoolCooldown(entry, cooldownHours, reason);
         log("pool-memory", `Cooldown set for ${entry.name} until ${poolCooldownUntil} (${reason})`);
