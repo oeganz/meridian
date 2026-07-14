@@ -38,6 +38,16 @@ import { notifyClose } from "../telegram.js";
 const _tokenPriceCache = new Map();
 const TOKEN_PRICE_CACHE_TTL = 5 * 60_000;
 
+// Build a pool_name that's unambiguous across pools sharing a token symbol
+// (e.g. two "brain-SOL" pools at different addresses). Appends 6 chars of
+// the pool address whenever a real address is available, so state.json and
+// Telegram labels stay distinguishable.
+export function poolDisplayName({ name, address }) {
+  const base = name || (address ? address.slice(0, 8) : null);
+  if (!base || !address) return base;
+  return `${base}·${address.slice(0, 6)}`;
+}
+
 export async function fetchTokenPrice(pool_address) {
   const cached = _tokenPriceCache.get(pool_address);
   if (cached && Date.now() - cached.at < TOKEN_PRICE_CACHE_TTL) return cached.price;
@@ -1668,7 +1678,7 @@ export async function closePosition({ position_address, reason }) {
     await recordPerformance({
       position:          position_address,
       pool:              tracked.pool,
-      pool_name:         tracked.pool_name || tracked.pool?.slice(0, 8),
+      pool_name:         poolDisplayName({ name: tracked.pool_name, address: tracked.pool }),
       base_mint:         tracked.base_mint,
       strategy:          tracked.strategy,
       bin_range:         tracked.bin_range,
@@ -1687,7 +1697,7 @@ export async function closePosition({ position_address, reason }) {
     });
 
     void notifyClose({
-      pair:   `[SIMULATED] ${tracked.pool_name || tracked.pool?.slice(0, 8)}`,
+      pair:   `[SIMULATED] ${poolDisplayName({ name: tracked.pool_name, address: tracked.pool })}`,
       pnlUsd,
       pnlPct,
     });
@@ -1860,7 +1870,7 @@ export async function closePosition({ position_address, reason }) {
         await recordPerformance({
           position: position_address,
           pool: poolAddress,
-          pool_name: tracked.pool_name || poolMeta.name || poolAddress.slice(0, 8),
+          pool_name: poolDisplayName({ name: tracked.pool_name || poolMeta.name, address: poolAddress }),
           base_mint: closeBaseMint,
           strategy: tracked.strategy,
           bin_range: tracked.bin_range,
@@ -1882,7 +1892,7 @@ export async function closePosition({ position_address, reason }) {
           type: "close",
           actor: "MANAGER",
           pool: poolAddress,
-          pool_name: tracked.pool_name || poolMeta.name || poolAddress.slice(0, 8),
+          pool_name: poolDisplayName({ name: tracked.pool_name || poolMeta.name, address: poolAddress }),
           position: position_address,
           summary: `Relay closed at ${pnlPct.toFixed(2)}%`,
           reason: reason || "agent decision",
@@ -1918,7 +1928,7 @@ export async function closePosition({ position_address, reason }) {
         type: "close",
         actor: "MANAGER",
         pool: poolAddress,
-        pool_name: poolMeta.name || poolAddress.slice(0, 8),
+        pool_name: poolDisplayName({ name: poolMeta.name, address: poolAddress }),
         position: position_address,
         summary: "Relay closed position",
         reason: reason || "agent decision",
@@ -2147,7 +2157,7 @@ export async function closePosition({ position_address, reason }) {
       await recordPerformance({
         position: position_address,
         pool: poolAddress,
-        pool_name: tracked.pool_name || poolMeta.name || poolAddress.slice(0, 8),
+        pool_name: poolDisplayName({ name: tracked.pool_name || poolMeta.name, address: poolAddress }),
         base_mint: closeBaseMint,
         strategy: tracked.strategy,
         bin_range: tracked.bin_range,
@@ -2169,7 +2179,7 @@ export async function closePosition({ position_address, reason }) {
         type: "close",
         actor: "MANAGER",
         pool: poolAddress,
-        pool_name: tracked.pool_name || poolMeta.name || poolAddress.slice(0, 8),
+        pool_name: poolDisplayName({ name: tracked.pool_name || poolMeta.name, address: poolAddress }),
         position: position_address,
         summary: `Closed at ${pnlPct.toFixed(2)}%`,
         reason: reason || "agent decision",
@@ -2203,7 +2213,7 @@ export async function closePosition({ position_address, reason }) {
       type: "close",
       actor: "MANAGER",
       pool: poolAddress,
-      pool_name: poolMeta.name || poolAddress.slice(0, 8),
+      pool_name: poolDisplayName({ name: poolMeta.name, address: poolAddress }),
       position: position_address,
       summary: "Closed position",
       reason: reason || "agent decision",
