@@ -89,6 +89,10 @@ export const config = {
     minTokenAgeHours:   u.minTokenAgeHours   ?? null, // null = no minimum
     maxTokenAgeHours:   u.maxTokenAgeHours   ?? null, // null = no maximum
     athFilterPct:       u.athFilterPct       ?? null, // e.g. -20 = only deploy if price is >= 20% below ATH
+    maxVolatility:        u.maxVolatility        ?? null, // legacy hard ceiling, still honored if set
+    volatilityRejectMin:  u.volatilityRejectMin  ?? 3,    // reject band lower bound (inclusive) — evidence: vola 3-5 bucket is net -36% over 14d/93 trades
+    volatilityRejectMax:  u.volatilityRejectMax  ?? 5,    // reject band upper bound (exclusive)
+    maxVolatilityHard:    u.maxVolatilityHard    ?? 8,    // reject anything >= this — evidence: vola 8+ bucket is net -18%
   },
 
   // ─── Position Management ────────────────

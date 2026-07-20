@@ -49,6 +49,22 @@ function isUsableVolatility(value) {
   return Number.isFinite(n) && n > 0;
 }
 
+// Volatility band filter. Backtest evidence (14d/93 live trades): vola in [3,5) nets -36%,
+// vola >= 8 nets -18%; vola <3 and [5,8) are net-positive. Reject the loss bands, keep the rest.
+function isVolatilityRejected(volatility, s) {
+  if (s.maxVolatility != null && volatility > s.maxVolatility) {
+    return `volatility ${volatility} above maxVolatility ${s.maxVolatility}`;
+  }
+  if (s.volatilityRejectMin != null && s.volatilityRejectMax != null &&
+      volatility >= s.volatilityRejectMin && volatility < s.volatilityRejectMax) {
+    return `volatility ${volatility} within reject band [${s.volatilityRejectMin}, ${s.volatilityRejectMax})`;
+  }
+  if (s.maxVolatilityHard != null && volatility >= s.maxVolatilityHard) {
+    return `volatility ${volatility} at/above maxVolatilityHard ${s.maxVolatilityHard}`;
+  }
+  return null;
+}
+
 function includesCaseInsensitive(values, value) {
   if (!Array.isArray(values) || values.length === 0 || !value) return false;
   const needle = String(value).toLowerCase();
@@ -117,9 +133,8 @@ function getRawPoolScreeningRejectReason(pool, s) {
   if (!isUsableVolatility(volatility)) {
     return `volatility ${volatility ?? "unknown"} is unusable`;
   }
-  if (s.maxVolatility != null && volatility > s.maxVolatility) {
-    return `volatility ${volatility} above maxVolatility ${s.maxVolatility}`;
-  }
+  const volatilityRejectReason = isVolatilityRejected(volatility, s);
+  if (volatilityRejectReason) return volatilityRejectReason;
   if (baseOrganic == null || baseOrganic < s.minOrganic) {
     return `base organic ${baseOrganic ?? "unknown"} below minOrganic ${s.minOrganic}`;
   }
@@ -577,8 +592,9 @@ export async function getTopCandidates({ limit = 10 } = {}) {
         pushFilteredReason(filteredOut, p, `volatility ${p.volatility ?? "unknown"} is unusable`);
         return false;
       }
-      if (config.screening.maxVolatility != null && Number(p.volatility) > config.screening.maxVolatility) {
-        pushFilteredReason(filteredOut, p, `volatility ${p.volatility} above maxVolatility ${config.screening.maxVolatility}`);
+      const volatilityRejectReason = isVolatilityRejected(Number(p.volatility), config.screening);
+      if (volatilityRejectReason) {
+        pushFilteredReason(filteredOut, p, volatilityRejectReason);
         return false;
       }
       if (occupiedPools.has(p.pool)) {
