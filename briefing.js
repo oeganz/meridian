@@ -1,9 +1,27 @@
 import fs from "fs";
 import { log } from "./logger.js";
 import { getPerformanceSummary } from "./lessons.js";
+import { isOorCloseReason } from "./pool-memory.js";
 
 const STATE_FILE = "./state.json";
 const LESSONS_FILE = "./lessons.json";
+const POOL_MEMORY_FILE = "./pool-memory.json";
+
+// Normalize free-text close_reason strings (e.g. "Stop loss: PnL -16% <= -15%",
+// "⚡ Trailing TP: peak 9% → current 5%") into the fixed rule buckets used by
+// getDeterministicCloseRule() in index.js, so drift in close patterns is
+// visible without manual jq archaeology.
+function bucketCloseReason(reason) {
+  const text = String(reason || "").toLowerCase();
+  if (!text) return "other";
+  if (text.includes("trailing")) return "trailing_tp";
+  if (text.includes("stop loss")) return "stop_loss";
+  if (text.includes("take profit")) return "take_profit";
+  if (text.includes("pumped far above range")) return "pumped_above_range";
+  if (isOorCloseReason(reason)) return "oor";
+  if (text.includes("low yield")) return "low_yield";
+  return "other";
+}
 
 export async function generateBriefing() {
   const state = loadJson(STATE_FILE) || { positions: {}, recentEvents: [] };
@@ -29,6 +47,22 @@ export async function generateBriefing() {
   const openPositions = allPositions.filter(p => !p.closed);
   const perfSummary = getPerformanceSummary();
 
+  // 4b. Close-reason breakdown (last 24h, across all pools in pool-memory.json)
+  const poolMemory = loadJson(POOL_MEMORY_FILE) || {};
+  const closesLast24h = Object.values(poolMemory)
+    .flatMap(entry => entry.deploys || [])
+    .filter(d => d.closed_at && new Date(d.closed_at) > last24h);
+  const closeReasonBuckets = {};
+  for (const d of closesLast24h) {
+    const bucket = bucketCloseReason(d.close_reason);
+    if (!closeReasonBuckets[bucket]) closeReasonBuckets[bucket] = { count: 0, pnlSum: 0 };
+    closeReasonBuckets[bucket].count++;
+    closeReasonBuckets[bucket].pnlSum += d.pnl_pct ?? 0;
+  }
+  const closeReasonLines = Object.entries(closeReasonBuckets)
+    .sort((a, b) => b[1].count - a[1].count)
+    .map(([bucket, { count, pnlSum }]) => `• ${bucket}: ${count} (avg PnL ${(pnlSum / count >= 0 ? "+" : "") + (pnlSum / count).toFixed(2)}%)`);
+
   // 5. Format Message
   const lines = [
     "☀️ <b>Morning Briefing</b> (Last 24h)",
@@ -48,6 +82,9 @@ export async function generateBriefing() {
     lessonsLast24h.length > 0
       ? lessonsLast24h.map(l => `• ${l.rule}`).join("\n")
       : "• No new lessons recorded overnight.",
+    "",
+    `<b>Close Reasons (24h):</b>`,
+    closeReasonLines.length > 0 ? closeReasonLines.join("\n") : "• No closes recorded overnight.",
     "",
     `<b>Current Portfolio:</b>`,
     `📂 Open Positions: ${openPositions.length}`,

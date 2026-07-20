@@ -96,6 +96,7 @@ export const config = {
     minClaimAmount:        u.minClaimAmount        ?? 5,
     autoSwapAfterClaim:    u.autoSwapAfterClaim    ?? false,
     outOfRangeBinsToClose: u.outOfRangeBinsToClose ?? 10,
+    outOfRangeBinsToCloseMinPnlPct: u.outOfRangeBinsToCloseMinPnlPct ?? (u.takeProfitPct ?? u.takeProfitFeePct ?? 5) / 2,
     outOfRangeWaitMinutes: u.outOfRangeWaitMinutes ?? 30,
     oorCooldownTriggerCount: u.oorCooldownTriggerCount ?? 3,
     oorCooldownHours:       u.oorCooldownHours       ?? 12,

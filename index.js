@@ -946,7 +946,8 @@ function getDeterministicCloseRule(position, managementConfig) {
   if (
     position.active_bin != null &&
     position.upper_bin != null &&
-    position.active_bin > position.upper_bin + managementConfig.outOfRangeBinsToClose
+    position.active_bin > position.upper_bin + managementConfig.outOfRangeBinsToClose &&
+    (position.pnl_pct == null || position.pnl_pct < managementConfig.outOfRangeBinsToCloseMinPnlPct)
   ) {
     return { action: "CLOSE", rule: 3, reason: "pumped far above range" };
   }

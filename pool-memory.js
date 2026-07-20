@@ -36,7 +36,7 @@ function save(data) {
   fs.writeFileSync(POOL_MEMORY_FILE, JSON.stringify(data, null, 2));
 }
 
-function isOorCloseReason(reason) {
+export function isOorCloseReason(reason) {
   const text = String(reason || "").trim().toLowerCase();
   return text === "oor" || text.includes("out of range") || text.includes("oor");
 }
