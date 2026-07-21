@@ -630,6 +630,8 @@ export async function runScreeningCycle({ silent = false } = {}) {
           volume:                pool.volume_window         ?? null,
           mcap:                  pool.mcap                  ?? null,
           holder_count:          ti?.holders                ?? null,
+          top10_pct:             ti?.audit?.top_holders_pct ?? null,
+          bot_pct:               ti?.audit?.bot_holders_pct ?? null,
           smart_wallets_present: (sw?.in_pool?.length ?? 0) > 0,
           narrative_quality:     n?.narrative ? "present" : "absent",
           volatility:            pool.volatility            ?? null,
