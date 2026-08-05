@@ -134,6 +134,7 @@ export function recordPoolDeploy(poolAddress, deployData) {
     close_reason: deployData.close_reason || null,
     strategy: deployData.strategy || null,
     volatility_at_deploy: deployData.volatility ?? null,
+    signal_snapshot: deployData.signal_snapshot ?? null,
   };
 
   entry.deploys.push(deploy);

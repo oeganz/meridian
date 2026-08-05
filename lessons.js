@@ -174,6 +174,7 @@ export async function recordPerformance(perf) {
       close_reason: perf.close_reason,
       strategy: perf.strategy,
       volatility: perf.volatility,
+      signal_snapshot: signalSnapshot,
     });
   }
 
