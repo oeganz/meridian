@@ -108,6 +108,7 @@ export const config = {
     repeatDeployCooldownTriggerCount: u.repeatDeployCooldownTriggerCount ?? 3,
     repeatDeployCooldownHours: u.repeatDeployCooldownHours ?? 12,
     repeatDeployCooldownScope: u.repeatDeployCooldownScope ?? "token", // pool | token | both
+    maxLossesPerToken: u.maxLossesPerToken ?? 3, // hard lifetime cap on losses per base mint; 0 = disabled
     repeatDeployCooldownMinFeeEarnedPct: u.repeatDeployCooldownMinFeeEarnedPct ?? u.repeatDeployCooldownMinFeeYieldPct ?? 0,
     minVolumeToRebalance:  u.minVolumeToRebalance  ?? 1000,
     stopLossPct:           u.stopLossPct           ?? u.emergencyPriceDropPct ?? -50,

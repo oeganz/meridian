@@ -2,7 +2,7 @@ import { config } from "../config.js";
 import { isBlacklisted } from "../token-blacklist.js";
 import { isDevBlocked, getBlockedDevs } from "../dev-blocklist.js";
 import { log } from "../logger.js";
-import { isBaseMintOnCooldown, isPoolOnCooldown } from "../pool-memory.js";
+import { isBaseMintOnCooldown, isBaseMintLossCapped, isPoolOnCooldown } from "../pool-memory.js";
 import { confirmIndicatorPreset } from "./chart-indicators.js";
 import { getAgentMeridianBase, getAgentMeridianHeaders } from "./agent-meridian.js";
 
@@ -613,6 +613,11 @@ export async function getTopCandidates({ limit = 10 } = {}) {
       if (isBaseMintOnCooldown(p.base?.mint)) {
         log("screening", `Filtered cooldown token ${p.base?.symbol} (${p.base?.mint?.slice(0, 8)})`);
         pushFilteredReason(filteredOut, p, "token cooldown active");
+        return false;
+      }
+      if (isBaseMintLossCapped(p.base?.mint)) {
+        log("screening", `Filtered loss-capped token ${p.base?.symbol} (${p.base?.mint?.slice(0, 8)})`);
+        pushFilteredReason(filteredOut, p, `token loss cap reached (maxLossesPerToken=${config.management.maxLossesPerToken})`);
         return false;
       }
       return true;

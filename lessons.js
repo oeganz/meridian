@@ -178,6 +178,28 @@ export async function recordPerformance(perf) {
     });
   }
 
+  // Auto-blacklist chronic losers: any close at pnl_pct <= -8% on a base
+  // mint we already have pool-memory data for. Permanent ban — agent cannot
+  // re-deploy into DSTmn5JB-class tokens regardless of cooldown windows.
+  if (
+    Number.isFinite(entry.pnl_pct) &&
+    entry.pnl_pct <= -8 &&
+    perf.base_mint
+  ) {
+    try {
+      const { isBlacklisted, addToBlacklist } = await import("./token-blacklist.js");
+      if (!isBlacklisted(perf.base_mint)) {
+        addToBlacklist({
+          mint: perf.base_mint,
+          symbol: perf.pool_name || "UNKNOWN",
+          reason: `auto: closed at ${entry.pnl_pct.toFixed(2)}% (pnl_pct <= -8%)`,
+        });
+      }
+    } catch (e) {
+      log("blacklist_error", `Auto-blacklist failed: ${e.message}`);
+    }
+  }
+
   // Evolve thresholds every 5 closed positions
   if (data.performance.length % MIN_EVOLVE_POSITIONS === 0) {
     const { config, reloadScreeningThresholds } = await import("./config.js");

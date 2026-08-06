@@ -246,6 +246,29 @@ export function isBaseMintOnCooldown(baseMint) {
   );
 }
 
+/**
+ * Hard lifetime cap on losses per base mint. Returns true if the base mint
+ * has reached/exceeded maxLossesPerToken — caller should refuse deploy.
+ * Independent of cooldown: even after cooldown clears, a chronic loser
+ * stays blacklisted. Tracked separately from pool cooldown so DSTmn5JB-class
+ * tokens cannot be re-deployed just because their 12-48h cooldown expired.
+ */
+export function isBaseMintLossCapped(baseMint) {
+  if (!baseMint) return false;
+  const cap = Number(config.management.maxLossesPerToken ?? 0);
+  if (cap <= 0) return false;
+  const db = load();
+  let losses = 0;
+  for (const entry of Object.values(db)) {
+    if (entry?.base_mint !== baseMint) continue;
+    for (const d of (entry.deploys || [])) {
+      if (d.pnl_pct != null && d.pnl_pct < 0) losses++;
+      if (losses >= cap) return true;
+    }
+  }
+  return false;
+}
+
 // ─── Read ──────────────────────────────────────────────────────
 
 /**
