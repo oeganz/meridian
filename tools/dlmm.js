@@ -60,6 +60,31 @@ export async function fetchTokenPrice(pool_address) {
   } catch { return null; }
 }
 
+/**
+ * Fetch live price for a token mint (not pool). Tries Jupiter price v3 first
+ * (covers almost all SPL tokens), then DexScreener pair lookup by mint.
+ * Used at deploy-time to populate entry_token_price_usd — without this
+ * tick-stop.js is silent (entry_token_price_usd null = skip).
+ */
+export async function fetchBaseMintPrice(baseMint) {
+  if (!baseMint) return null;
+  const cached = _tokenPriceCache.get(baseMint);
+  if (cached && Date.now() - cached.at < TOKEN_PRICE_CACHE_TTL) return cached.price;
+  // Jupiter price v3 — works for any SPL token that has any liquidity anywhere
+  try {
+    const headers = process.env.JUPITER_API_KEY ? { "x-api-key": process.env.JUPITER_API_KEY } : {};
+    const res = await fetch(`https://api.jup.ag/price/v3?ids=${baseMint}`, { headers });
+    if (res.ok) {
+      const price = parseFloat((await res.json())?.[baseMint]?.usdPrice ?? 0) || null;
+      if (price) {
+        _tokenPriceCache.set(baseMint, { price, at: Date.now() });
+        return price;
+      }
+    }
+  } catch { /* fallthrough */ }
+  return null;
+}
+
 // ─── Lazy SDK loader ───────────────────────────────────────────
 // @meteora-ag/dlmm → @coral-xyz/anchor uses CJS directory imports
 // that break in ESM on Node 24. Dynamic import defers loading until

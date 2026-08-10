@@ -9,6 +9,7 @@ import {
   closePosition,
   searchPools,
   fetchTokenPrice,
+  fetchBaseMintPrice,
 } from "./dlmm.js";
 import { getWalletBalances, swapToken } from "./wallet.js";
 import { studyTopLPers } from "./study.js";
@@ -626,7 +627,9 @@ export async function executeTool(name, args) {
       fakeResult.txs = [];
       try {
         const [entry_token_price_usd, meteoraPool] = await Promise.all([
-          args.pool_address ? fetchTokenPrice(args.pool_address).catch(() => null) : null,
+          args.base_mint ? fetchBaseMintPrice(args.base_mint).catch(() => null)
+            : args.pool_address ? fetchTokenPrice(args.pool_address).catch(() => null)
+            : null,
           args.pool_address
             ? fetch(`https://dlmm.datapi.meteora.ag/pools/${args.pool_address}`)
                 .then(r => r.ok ? r.json() : null).catch(() => null)
