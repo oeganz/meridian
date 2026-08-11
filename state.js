@@ -434,21 +434,32 @@ export function updatePnlAndCheckExits(position_address, positionData, mgmtConfi
   // dip — wait for take-profit target. Stop-loss stays active above.
   if (!pnl_pct_suspicious && pos.trailing_active) {
     const anchorPct = mgmtConfig.trailingTpAnchorPct ?? 5;
-    const tpPct = mgmtConfig.takeProfitPct ?? 8;
     const tpAnchored = pos.peak_pnl_pct >= anchorPct;
     const dropFromPeak = pos.peak_pnl_pct - currentPnlPct;
-    if (!tpAnchored && dropFromPeak >= mgmtConfig.trailingDropPct) {
-      return {
-        action: "TRAILING_TP",
-        reason: `Trailing TP: peak ${pos.peak_pnl_pct.toFixed(2)}% → current ${currentPnlPct.toFixed(2)}% (dropped ${dropFromPeak.toFixed(2)}% >= ${mgmtConfig.trailingDropPct}%)`,
-        needs_confirmation: true,
-        peak_pnl_pct: pos.peak_pnl_pct,
-        current_pnl_pct: currentPnlPct,
-        drop_from_peak_pct: dropFromPeak,
-      };
+
+    // Anchored (proven winner) uses a WIDER trail plus a profit floor instead of
+    // no trail at all — the old binary anchor let 8-12% peaks decay all the way
+    // to the -2.5% stop. Backtest on 81 anchored peaks: no-trail TP=12 nets
+    // +136%, ratchet TP=12 nets +448%.
+    const dropLimit = tpAnchored
+      ? (mgmtConfig.trailingAnchorDropPct ?? 2)
+      : mgmtConfig.trailingDropPct;
+    const floorPct = mgmtConfig.trailingProfitFloorPct ?? 6;
+
+    if (dropFromPeak >= dropLimit) {
+      // Never give back a locked win: once peak cleared the floor, exiting on
+      // trail must still land at/above the floor, else hold for stop-loss.
+      if (!tpAnchored || pos.peak_pnl_pct < floorPct || currentPnlPct >= floorPct) {
+        return {
+          action: "TRAILING_TP",
+          reason: `Trailing TP: peak ${pos.peak_pnl_pct.toFixed(2)}% → current ${currentPnlPct.toFixed(2)}% (dropped ${dropFromPeak.toFixed(2)}% >= ${dropLimit}%${tpAnchored ? ", anchored" : ""})`,
+          needs_confirmation: true,
+          peak_pnl_pct: pos.peak_pnl_pct,
+          current_pnl_pct: currentPnlPct,
+          drop_from_peak_pct: dropFromPeak,
+        };
+      }
     }
-    // tpAnchored => skip trailing-drop. Stop-loss above already handles
-    // a real dump; we wait for take-profit target or hard stop.
   }
 
   // ── Out of range too long ──────────────────────────────────────

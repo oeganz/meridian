@@ -545,6 +545,10 @@ export async function deployPosition({
     log("deploy", `Base mint ${baseMint.slice(0, 8)} is on cooldown — skipping deploy for pool ${pool_address.slice(0, 8)}`);
     return { success: false, error: "Token on cooldown — recently closed out-of-range too many times. Try a different token." };
   }
+  // Kick off entry-price fetch now, await it at trackPosition — tick-stop.js
+  // skips any position without entry_token_price_usd, so this must be populated
+  // on the LIVE path (the executor.js copy only runs under DRY_RUN).
+  const entryPricePromise = fetchBaseMintPrice(baseMint).catch(() => null);
   const activeBin = await pool.getActiveBin();
   const actualBinStep = pool.lbPair.binStep;
   const activePrice = Number(getPriceOfBinByBinId(activeBin.binId, actualBinStep).toString());
@@ -757,6 +761,8 @@ export async function deployPosition({
           active_bin: activeBin.binId,
           initial_value_usd,
           signal_snapshot: signalSnapshot,
+          base_mint: baseMint,
+          entry_token_price_usd: await entryPricePromise,
         });
       }
 
@@ -895,6 +901,8 @@ export async function deployPosition({
       active_bin: activeBin.binId,
       initial_value_usd,
       signal_snapshot: signalSnapshot,
+      base_mint: baseMint,
+      entry_token_price_usd: await entryPricePromise,
     });
 
     appendDecision({
