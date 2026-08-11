@@ -430,9 +430,14 @@ export function updatePnlAndCheckExits(position_address, positionData, mgmtConfi
   }
 
   // ── Trailing TP ────────────────────────────────────────────────
+  // TP-anchor: if peak already proved a winner (>= anchorPct), don't cut on
+  // dip — wait for take-profit target. Stop-loss stays active above.
   if (!pnl_pct_suspicious && pos.trailing_active) {
+    const anchorPct = mgmtConfig.trailingTpAnchorPct ?? 5;
+    const tpPct = mgmtConfig.takeProfitPct ?? 8;
+    const tpAnchored = pos.peak_pnl_pct >= anchorPct;
     const dropFromPeak = pos.peak_pnl_pct - currentPnlPct;
-    if (dropFromPeak >= mgmtConfig.trailingDropPct) {
+    if (!tpAnchored && dropFromPeak >= mgmtConfig.trailingDropPct) {
       return {
         action: "TRAILING_TP",
         reason: `Trailing TP: peak ${pos.peak_pnl_pct.toFixed(2)}% → current ${currentPnlPct.toFixed(2)}% (dropped ${dropFromPeak.toFixed(2)}% >= ${mgmtConfig.trailingDropPct}%)`,
@@ -442,6 +447,8 @@ export function updatePnlAndCheckExits(position_address, positionData, mgmtConfi
         drop_from_peak_pct: dropFromPeak,
       };
     }
+    // tpAnchored => skip trailing-drop. Stop-loss above already handles
+    // a real dump; we wait for take-profit target or hard stop.
   }
 
   // ── Out of range too long ──────────────────────────────────────
