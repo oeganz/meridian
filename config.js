@@ -110,6 +110,10 @@ export const config = {
     repeatDeployCooldownScope: u.repeatDeployCooldownScope ?? "token", // pool | token | both
     maxLossesPerToken: u.maxLossesPerToken ?? 3, // hard lifetime cap on losses per base mint; 0 = disabled
     repeatDeployCooldownMinFeeEarnedPct: u.repeatDeployCooldownMinFeeEarnedPct ?? u.repeatDeployCooldownMinFeeYieldPct ?? 0,
+    // Outcome cooldowns — applied per close in pool-memory.recordPoolDeploy
+    winCooldownBigHours:   u.winCooldownBigHours   ?? 6,  // pnl >= 5%  → bench pool+token
+    winCooldownSmallHours: u.winCooldownSmallHours ?? 3,  // pnl 0..5%  → shorter bench
+    lossCooldownBigHours:  u.lossCooldownBigHours  ?? 24, // pnl <= -5% → longest bench
     minVolumeToRebalance:  u.minVolumeToRebalance  ?? 1000,
     stopLossPct:           u.stopLossPct           ?? u.emergencyPriceDropPct ?? -50,
     takeProfitPct:         u.takeProfitPct         ?? u.takeProfitFeePct ?? 5,

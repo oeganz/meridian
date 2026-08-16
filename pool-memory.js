@@ -162,6 +162,33 @@ export function recordPoolDeploy(poolAddress, deployData) {
     entry.base_mint = deployData.base_mint;
   }
 
+  // Outcome-based cooldown (win / loss / dust) — bench the pool briefly after
+  // any close so the screener doesn't immediately redeploy into the same noise.
+  // Big wins get a longer bench so we don't churn the same pool over and over;
+  // losses get the longest. Dust closes (close_reason includes "Rule 5" or
+  // pnl_pct near 0) skip cooldown entirely — the pool is fine, just not paying.
+  {
+    const pnl = Number(deploy.pnl_pct);
+    const reason = String(deploy.close_reason || "");
+    const winBigHours = Number(config.management.winCooldownBigHours ?? 6);
+    const winSmallHours = Number(config.management.winCooldownSmallHours ?? 3);
+    const lossBigHours = Number(config.management.lossCooldownBigHours ?? 24);
+    const isLoss = Number.isFinite(pnl) && pnl <= -5;
+    const isWinBig = Number.isFinite(pnl) && pnl >= 5;
+    const isWinSmall = Number.isFinite(pnl) && pnl > 0 && pnl < 5;
+    const isDust = reason.includes("Rule 5") || (Number.isFinite(pnl) && Math.abs(pnl) < 0.5);
+    let outcomeHours = null;
+    let outcomeLabel = null;
+    if (isLoss)      { outcomeHours = lossBigHours;  outcomeLabel = `loss ${pnl.toFixed(2)}%`; }
+    else if (isWinBig)   { outcomeHours = winBigHours;   outcomeLabel = `win ${pnl.toFixed(2)}%`; }
+    else if (isWinSmall) { outcomeHours = winSmallHours; outcomeLabel = `win ${pnl.toFixed(2)}%`; }
+    if (outcomeHours && !isDust) {
+      setPoolCooldown(entry, outcomeHours, `outcome: ${outcomeLabel}`);
+      if (entry.base_mint) setBaseMintCooldown(db, entry.base_mint, outcomeHours, `outcome: ${outcomeLabel}`);
+      log("pool-memory", `Outcome cooldown set for ${entry.name} until +${outcomeHours}h (${outcomeLabel})`);
+    }
+  }
+
   // Set cooldown for low yield closes — pool wasn't profitable enough, don't redeploy soon
   if (deploy.close_reason === "low yield") {
     const cooldownHours = 4;
