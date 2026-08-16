@@ -1,18 +1,29 @@
 /**
- * Tick-level stop-loss — fires close within ~1s of PnL crossing stopLossPct,
- * instead of waiting for the 30s PnL poll / 10min management cycle.
+ * Tick-level stop-loss — fires close within ~1s of a real dump, instead of
+ * waiting for the 30s PnL poll / 10min management cycle.
  *
- * Source: independent of Meteora's PnL API (which can lag). We compute
- * PnL% from a live token price (Jupiter price v3) vs the entry price
- * captured at deploy.
+ * Two-stage by design. Jupiter token price vs entry is only a cheap SCREEN;
+ * it is NOT position PnL. A single-sided SOL DLMM position sits below the
+ * active bin, so a 3% downward token tick is the position working as intended
+ * and collecting fees. Closing on that alone burned 24 round trips in 5 days
+ * for -1% gas+slippage each and zero fee capture. So a price-screen hit now
+ * only triggers a real getPositionPnl() read, and the close needs the LP
+ * value to actually be below stopLossPct.
+ *
+ * Also: no close before tickStopGraceSeconds after deploy (memecoins routinely
+ * wick 3% in the first minute, before any fee has accrued), and the close goes
+ * through executeTool so it lands in the action log and reaches
+ * recordPerformance()/pool-memory. Direct closePosition() calls bypassed both,
+ * which is why 24 on-chain closes left ~5 rows in actions-*.jsonl.
  *
  * ponytail: upgrade path — replace Jupiter poll with Helius/Birdeye WS or
  * Solana log subscribe for sub-second latency. Add when this still misses
  * dumps >2%.
  */
 import { log } from "./logger.js";
-import { getTrackedPositions, setPositionInstruction } from "./state.js";
-import { closePosition } from "./tools/dlmm.js";
+import { getTrackedPositions } from "./state.js";
+import { getPositionPnl } from "./tools/dlmm.js";
+import { executeTool } from "./tools/executor.js";
 import { config } from "./config.js";
 
 const JUPITER_PRICE_API = "https://api.jup.ag/price/v3";
@@ -59,9 +70,15 @@ async function tickOnce() {
     if (!open.length) return;
 
     const stopLossPct = config.management.stopLossPct;
+    const graceMs = Math.max(0, Number(config.management.tickStopGraceSeconds ?? 300)) * 1000;
+    const screenPct = Number(config.management.tickStopScreenPct ?? stopLossPct);
     const eligible = open.filter((p) => {
       if (!p.base_mint || !p.entry_token_price_usd) return false;
       if (inCooldown(p.position)) return false;
+      // Entry grace: a fresh position has earned no fees yet, so an early wick
+      // can only ever close at a loss.
+      const age = p.deployed_at ? Date.now() - new Date(p.deployed_at).getTime() : Infinity;
+      if (age < graceMs) return false;
       return true;
     });
     if (!eligible.length) return;
@@ -86,27 +103,49 @@ async function tickOnce() {
     for (const p of eligible) {
       const live = priceMap[p.base_mint];
       if (!live) continue;
-      const pnlPct = ((live - p.entry_token_price_usd) / p.entry_token_price_usd) * 100;
-      if (pnlPct <= stopLossPct) {
-        const sinceLast = Date.now() - _lastTriggerAt;
-        if (sinceLast < 5000) {
-          // back-to-back triggers are likely the same dump across multiple positions — throttle
-          log("tick_stop", `throttled ${p.pool_name || p.position.slice(0, 8)} pnl=${pnlPct.toFixed(2)}%`);
-          setCooldown(p.position, 30_000);
-          continue;
-        }
-        _lastTriggerAt = Date.now();
-        setCooldown(p.position);
-        log("tick_stop", `STOP-LOSS TICK ${p.pool_name || p.position.slice(0, 8)} pnl=${pnlPct.toFixed(2)}% entry=${p.entry_token_price_usd} live=${live}`);
-        try {
-          const res = await closePosition({
-            position_address: p.position,
-            reason: `⚡ Tick stop-loss: PnL ${pnlPct.toFixed(2)}% <= ${stopLossPct}%`,
-          });
-          log("tick_stop", `close result: ${res?.success ? "OK" : res?.error || "unknown"}`);
-        } catch (e) {
-          log("tick_stop_error", `close failed: ${e.message}`);
-        }
+      const tokenMovePct = ((live - p.entry_token_price_usd) / p.entry_token_price_usd) * 100;
+      if (tokenMovePct > screenPct) continue;
+
+      const sinceLast = Date.now() - _lastTriggerAt;
+      if (sinceLast < 5000) {
+        // back-to-back triggers are likely the same dump across multiple positions — throttle
+        log("tick_stop", `throttled ${p.pool_name || p.position.slice(0, 8)} token=${tokenMovePct.toFixed(2)}%`);
+        setCooldown(p.position, 30_000);
+        continue;
+      }
+
+      // Screen hit — now read the REAL LP position PnL before closing anything.
+      let lpPnlPct = null;
+      try {
+        const pnl = await getPositionPnl({ pool_address: p.pool, position_address: p.position });
+        lpPnlPct = typeof pnl?.pnl_pct === "number" ? pnl.pnl_pct : null;
+      } catch (e) {
+        log("tick_stop_warn", `pnl read failed for ${p.pool_name || p.position.slice(0, 8)}: ${e.message}`);
+      }
+      if (lpPnlPct == null) {
+        setCooldown(p.position, 30_000);
+        continue;
+      }
+      if (lpPnlPct > stopLossPct) {
+        // Token dipped but the LP position is still fine — this is the case that
+        // used to force a losing close. Back off and re-screen later.
+        log("tick_stop", `screen hit but LP ok ${p.pool_name || p.position.slice(0, 8)} token=${tokenMovePct.toFixed(2)}% lp=${lpPnlPct.toFixed(2)}%`);
+        setCooldown(p.position, 30_000);
+        continue;
+      }
+
+      _lastTriggerAt = Date.now();
+      setCooldown(p.position);
+      log("tick_stop", `STOP-LOSS TICK ${p.pool_name || p.position.slice(0, 8)} lp=${lpPnlPct.toFixed(2)}% token=${tokenMovePct.toFixed(2)}% entry=${p.entry_token_price_usd} live=${live}`);
+      try {
+        // via executeTool so the close is logged and reaches recordPerformance()
+        const res = await executeTool("close_position", {
+          position_address: p.position,
+          reason: `⚡ Tick stop-loss: LP PnL ${lpPnlPct.toFixed(2)}% <= ${stopLossPct}%`,
+        });
+        log("tick_stop", `close result: ${res?.success ? "OK" : res?.error || res?.reason || "unknown"}`);
+      } catch (e) {
+        log("tick_stop_error", `close failed: ${e.message}`);
       }
     }
   } finally {
@@ -116,10 +155,14 @@ async function tickOnce() {
 
 export function startTickStop() {
   if (_interval) return;
+  if (config.management.tickStopEnabled === false) {
+    log("cron", "Tick stop-loss disabled by config");
+    return;
+  }
   _interval = setInterval(() => {
     tickOnce().catch((e) => log("tick_stop_error", e.message));
   }, POLL_MS);
-  log("cron", `Tick stop-loss started — ${POLL_MS}ms poll on open positions`);
+  log("cron", `Tick stop-loss started — ${POLL_MS}ms poll on open positions (grace=${config.management.tickStopGraceSeconds}s screen=${config.management.tickStopScreenPct}%)`);
 }
 
 export function stopTickStop() {

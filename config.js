@@ -127,6 +127,10 @@ export const config = {
     trailingAnchorDropPct: u.trailingAnchorDropPct ?? 2,    // trail width once anchored — lets winners run past takeProfitPct
     trailingProfitFloorPct: u.trailingProfitFloorPct ?? 6,  // anchored exits must land at/above this; below it, hold for stop-loss
     pnlSanityMaxDiffPct:   u.pnlSanityMaxDiffPct   ?? 5,    // max allowed diff between reported and derived pnl % before ignoring a tick
+    // Tick stop — token-price screen before falling back to a real LP-PnL read
+    tickStopEnabled:         u.tickStopEnabled         ?? true,
+    tickStopGraceSeconds:    u.tickStopGraceSeconds    ?? 300, // skip early wicks before fees accrue
+    tickStopScreenPct:       u.tickStopScreenPct       ?? u.stopLossPct ?? -50, // token-move threshold to trigger LP read
     // SOL mode — positions, PnL, and balances reported in SOL instead of USD
     solMode:               u.solMode               ?? false,
   },
