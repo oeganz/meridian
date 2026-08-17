@@ -28,13 +28,18 @@ import { config } from "./config.js";
 
 const JUPITER_PRICE_API = "https://api.jup.ag/price/v3";
 const JUPITER_API_KEY = process.env.JUPITER_API_KEY || "";
-const POLL_MS = 1000;
+// 1s polling without an API key gets a solid wall of Jupiter 429s, which makes
+// the screen blind exactly when it matters. 4s still catches a dump far inside
+// the 30s PnL poller / 10min cron that back it up.
+const POLL_MS = Math.max(1000, Number(config.management.tickStopPollMs ?? 4000));
 const COOLDOWN_MS = 60_000; // per-position re-arm after a trigger / false-positive
 const MAX_PARALLEL_FETCH = 4;
+const RATE_LIMIT_BACKOFF_MS = 60_000;
 
 let _interval = null;
 let _busy = false;
 let _lastTriggerAt = 0;
+let _rateLimitedUntil = 0;
 const _cooldownUntil = new Map(); // position_address -> ms epoch
 
 function inCooldown(positionAddress) {
@@ -50,6 +55,12 @@ async function fetchPrices(mints) {
   const url = `${JUPITER_PRICE_API}?ids=${mints.join(",")}`;
   const headers = JUPITER_API_KEY ? { "x-api-key": JUPITER_API_KEY } : {};
   const res = await fetch(url, { headers });
+  if (res.status === 429) {
+    // Park the whole screen briefly instead of retrying every tick — a tight
+    // retry loop is what earned the 429 in the first place.
+    _rateLimitedUntil = Date.now() + RATE_LIMIT_BACKOFF_MS;
+    throw new Error("Jupiter price 429 (backing off 60s)");
+  }
   if (!res.ok) throw new Error(`Jupiter price ${res.status}`);
   const data = await res.json();
   const out = {};
@@ -64,6 +75,7 @@ async function fetchPrices(mints) {
 
 async function tickOnce() {
   if (_busy) return;
+  if (Date.now() < _rateLimitedUntil) return;
   _busy = true;
   try {
     const open = getTrackedPositions(true).filter((p) => !p.closed);
