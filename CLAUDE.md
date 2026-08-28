@@ -83,7 +83,7 @@ Sets defined in `agent.js:6-7`. If you add a tool, also add it to the relevant s
 | blockedLaunchpads | screening | [] |
 | maxVolatility | screening | null (legacy hard ceiling, still honored if set) |
 | volatilityRejectMin / volatilityRejectMax | screening | 3 / 5 |
-| maxVolatilityHard | screening | 8 |
+| maxVolatilityHard | screening | 7 |
 | deployAmountSol | management | 0.5 |
 | maxDeployAmount | risk | 50 |
 | maxPositions | risk | 3 |
@@ -121,7 +121,7 @@ Before `deploy_position` executes:
 - `amount_x > 0` is rejected. Deploys are single-side SOL only (`amount_y` / `amount_sol`)
 - SOL balance must cover `amount_y + gasReserve`
 - `blockedLaunchpads` enforced in `getTopCandidates()` before LLM sees candidates
-- Volatility **band** filter enforced via shared `isVolatilityRejected()` helper in `tools/screening.js` (used at both `getRawPoolScreeningRejectReason` and `getTopCandidates` eligible-filter sites, so they can't drift). Rejects: `vola > maxVolatility` (legacy ceiling, if set) OR `vola` in `[volatilityRejectMin, volatilityRejectMax)` OR `vola >= maxVolatilityHard`. Backtest on 14d/93 live trades showed vola 3-5 nets -36% and vola 8+ nets -18%, while vola <3 and 5-8 are net-positive — a plain ceiling was perversely allowing the worst bucket (3-5) while blocking the profitable 5-8 zone.
+- Volatility **band** filter enforced via shared `isVolatilityRejected()` helper in `tools/screening.js` (used at both `getRawPoolScreeningRejectReason` and `getTopCandidates` eligible-filter sites, so they can't drift). Rejects: `vola > maxVolatility` (legacy ceiling, if set) OR `vola` in `[volatilityRejectMin, volatilityRejectMax)` OR `vola >= maxVolatilityHard`. Backtest on 14d/93 live trades showed vola 3-5 nets -36% and vola 8+ nets -18%, while vola <3 and 5-8 are net-positive — a plain ceiling was perversely allowing the worst bucket (3-5) while blocking the profitable 5-8 zone. **Updated 2026-08-28:** `maxVolatilityHard` lowered 8 → 7. A 7d/26-trade review split the old 5-8 band and found 5-7 nets +$1.91 while 7-8 nets -$3.25 and produced every catastrophic loss of the week (-7.4%, -8.7%, -11.9%); the original 5-8 conclusion was averaging a good sub-band with a bad one.
 
 ---
 
