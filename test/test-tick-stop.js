@@ -14,6 +14,11 @@ function decide({ tokenMovePct, lpPnlPct, stopLossPct, screenPct, ageMs, graceMs
 
 
 
+// Mirror of the cooldown choice in the SCREEN_HIT_BUT_LP_OK branch.
+function cooldownFor({ lpPnlPct, stopLossPct, nearStopPct = 3 }) {
+  return lpPnlPct - stopLossPct <= nearStopPct ? 0 : 30_000;
+}
+
 const base = { stopLossPct: -2.5, screenPct: -2.5, graceMs: 300_000 };
 
 // ─── The regression this fixes ─────────────────────────────────
@@ -75,4 +80,33 @@ assert.equal(
   "LP at -2.5% = stopLoss threshold → close"
 );
 
-console.log("PASS: tick-stop two-stage");
+// -- Blind-window regression: cooldown scales with headroom --
+// WindChill-SOL went lp=+1.13% -> lp=-8.37% inside one flat 30s bench,
+// overshooting the -2.5% stop by 5.9pp. Near the stop we must not bench.
+assert.equal(
+  cooldownFor({ lpPnlPct: -1.0, stopLossPct: -2.5 }),
+  0,
+  "lp -1.0% = 1.5pp of headroom -> recheck next tick, no 30s bench"
+);
+assert.equal(
+  cooldownFor({ lpPnlPct: 0.4, stopLossPct: -2.5 }),
+  0,
+  "lp +0.4% = 2.9pp of headroom -> still near the stop, recheck next tick"
+);
+assert.equal(
+  cooldownFor({ lpPnlPct: 0.5, stopLossPct: -2.5 }),
+  0,
+  "lp +0.5% = exactly 3pp -> boundary is inclusive, recheck next tick"
+);
+assert.equal(
+  cooldownFor({ lpPnlPct: 0.51, stopLossPct: -2.5 }),
+  30_000,
+  "lp +0.51% = 3.01pp -> just outside the near-stop band, bench"
+);
+assert.equal(
+  cooldownFor({ lpPnlPct: 5.0, stopLossPct: -2.5 }),
+  30_000,
+  "lp +5% = 7.5pp of headroom -> safe to bench 30s"
+);
+
+console.log("PASS: tick-stop two-stage + headroom cooldown");

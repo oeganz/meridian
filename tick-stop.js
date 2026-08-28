@@ -35,6 +35,8 @@ const POLL_MS = Math.max(1000, Number(config.management.tickStopPollMs ?? 4000))
 const COOLDOWN_MS = 60_000; // per-position re-arm after a trigger / false-positive
 const MAX_PARALLEL_FETCH = 4;
 const RATE_LIMIT_BACKOFF_MS = 60_000;
+// LP within this many points of stopLossPct = re-check every poll, no bench.
+const NEAR_STOP_PCT = Number(config.management.tickStopNearStopPct ?? 3);
 
 let _interval = null;
 let _busy = false;
@@ -141,8 +143,15 @@ async function tickOnce() {
       if (lpPnlPct > stopLossPct) {
         // Token dipped but the LP position is still fine — this is the case that
         // used to force a losing close. Back off and re-screen later.
-        log("tick_stop", `screen hit but LP ok ${p.pool_name || p.position.slice(0, 8)} token=${tokenMovePct.toFixed(2)}% lp=${lpPnlPct.toFixed(2)}%`);
-        setCooldown(p.position, 30_000);
+        //
+        // Cooldown scales with headroom to the stop. A flat 30s bench meant a
+        // fast dump completed entirely inside the blind window: WindChill-SOL
+        // went lp=+1.13% -> lp=-8.37% across one 30s gap, overshooting a -2.5%
+        // stop by 5.9pp. Near the stop we re-check on the next poll instead.
+        const headroom = lpPnlPct - stopLossPct;
+        const cooldownMs = headroom <= NEAR_STOP_PCT ? 0 : 30_000;
+        log("tick_stop", `screen hit but LP ok ${p.pool_name || p.position.slice(0, 8)} token=${tokenMovePct.toFixed(2)}% lp=${lpPnlPct.toFixed(2)}% headroom=${headroom.toFixed(2)}pp recheck=${cooldownMs ? "30s" : "next tick"}`);
+        if (cooldownMs) setCooldown(p.position, cooldownMs);
         continue;
       }
 

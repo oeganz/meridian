@@ -1389,7 +1389,9 @@ async function deployLatestCandidate(index) {
     volatility: candidate.volatility,
     fee_tvl_ratio: candidate.fee_active_tvl_ratio ?? candidate.fee_tvl_ratio,
     organic_score: candidate.organic_score,
-    initial_value_usd: candidate.tvl ?? candidate.active_tvl ?? null,
+    // initial_value_usd intentionally omitted — deployPosition derives it from
+    // the SOL actually deployed. Passing candidate.tvl here meant the POOL's TVL
+    // ($200k+) was recorded as the position's cost basis.
   });
   if (result?.success === false || result?.error) {
     throw new Error(result.error || "Deploy failed");

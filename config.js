@@ -136,6 +136,7 @@ export const config = {
     tickStopGraceSeconds:    u.tickStopGraceSeconds    ?? 300, // skip early wicks before fees accrue
     tickStopScreenPct:       u.tickStopScreenPct       ?? u.stopLossPct ?? -50, // token-move threshold to trigger LP read
     tickStopPollMs:          u.tickStopPollMs          ?? 4000, // 1s without a Jupiter API key = constant 429s
+    tickStopNearStopPct:     u.tickStopNearStopPct     ?? 3,    // LP within Npp of stop = recheck every poll, no 30s bench
     // SOL mode — positions, PnL, and balances reported in SOL instead of USD
     solMode:               u.solMode               ?? false,
   },

@@ -28,7 +28,7 @@ import {
 import { refreshSimSnapshots } from "../sim-poller.js";
 import { recordPerformance } from "../lessons.js";
 import { isBaseMintOnCooldown, isPoolOnCooldown } from "../pool-memory.js";
-import { normalizeMint } from "./wallet.js";
+import { normalizeMint, getWalletBalances } from "./wallet.js";
 import { appendDecision } from "../decision-log.js";
 import { agentMeridianJson, getAgentIdForRequests, getAgentMeridianHeaders } from "./agent-meridian.js";
 import { getAndClearStagedSignals } from "../signal-tracker.js";
@@ -602,6 +602,25 @@ export async function deployPosition({
     throw new Error("Invalid deploy amount: provide a positive amount_y/amount_sol.");
   }
   const isSingleSidedSol = finalAmountX <= 0 && finalAmountY > 0;
+  // The caller-supplied initial_value_usd is unreliable: index.js passes the
+  // POOL's TVL, and the LLM can pass anything. It is the denominator for every
+  // pnl_pct in lessons.js/pool-memory, so a wrong value silently corrupts all
+  // learning. Derive it from the SOL actually deployed; only fall back to the
+  // caller's number if no live SOL price is available.
+  let entrySolPrice = null;
+  try {
+    entrySolPrice = Number((await getWalletBalances()).sol_price) || null;
+  } catch { /* price unavailable — fall back below */ }
+  const derivedInitialUsd = entrySolPrice
+    ? parseFloat((finalAmountY * entrySolPrice).toFixed(2))
+    : null;
+  if (derivedInitialUsd && Number.isFinite(Number(initial_value_usd))) {
+    const supplied = Number(initial_value_usd);
+    if (supplied > derivedInitialUsd * 2 || supplied < derivedInitialUsd / 2) {
+      log("deploy_warn", `initial_value_usd ${supplied} implausible for ${finalAmountY} SOL — using ${derivedInitialUsd}`);
+    }
+  }
+  initial_value_usd = derivedInitialUsd ?? initial_value_usd ?? null;
   if (isSingleSidedSol && (Number(bins_above ?? 0) > 0 || Number(upside_pct ?? 0) > 0)) {
     throw new Error(
       "Single-side SOL deploy cannot use bins_above or upside_pct. Use amount_y with bins_below only; the upper bin is the SDK active bin.",
@@ -760,6 +779,7 @@ export async function deployPosition({
           amount_x: finalAmountX,
           active_bin: activeBin.binId,
           initial_value_usd,
+          entry_sol_price: entrySolPrice,
           signal_snapshot: signalSnapshot,
           base_mint: baseMint,
           entry_token_price_usd: await entryPricePromise,
@@ -900,6 +920,7 @@ export async function deployPosition({
       amount_x: finalAmountX,
       active_bin: activeBin.binId,
       initial_value_usd,
+      entry_sol_price: entrySolPrice,
       signal_snapshot: signalSnapshot,
       base_mint: baseMint,
       entry_token_price_usd: await entryPricePromise,
