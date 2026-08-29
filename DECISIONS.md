@@ -12,6 +12,112 @@ abandoned, says so plainly.
 
 ---
 
+## 2026-08-29 (later) — Stop-loss shadow log
+
+**Trigger:** asked "why are we losing so much". The answer was not a mechanism
+bug, and the fix I wanted to test turned out to be untestable.
+
+### The P&L, from `actions-*.jsonl`
+
+All-time: **292 closes, net -$10.76, WR 51%**. `pool-memory.json` reports
++$1,108,803 — that is the corrupt `initial_value_usd` bug (pool TVL as cost
+basis), still unbackfilled. Every number here comes from the action log.
+
+By close reason:
+
+```
+stop loss      n=65   -$62.39   WR  3%
+take profit             +$21.31
+trailing                 +$8.96
+OOR / range             +$23.23
+                       --------
+every non-stop path     +$53.50
+```
+
+Worst 3 trades alone are -$11.84; without them the book is +$1.08.
+
+**The real diagnosis is the payoff ratio, not any single trade:**
+
+```
+wins    n=150   +$58.29   avg +$0.389
+losses  n=141   -$69.05   avg -$0.490
+payoff ratio 0.79  ->  breakeven WR 56%   actual WR 51%
+```
+
+That 5-point gap *is* the -$10.76. Median fee income is **$0.026/trade**
+(0.175% of a $15 position) against a **23-minute median hold** — too short for
+fees to accrue, so every trade is a directional bet settled at DLMM slippage.
+Stops also overshoot: 24% realize worse than detected (BULLCAT detected -9.65%,
+realized -18.98%).
+
+### Rejected: widening `stopLossPct` — not on the evidence available
+
+Natural experiment: find positions that dipped past a threshold and were *not*
+stop-closed, and see what they did next.
+
+```
+thresh    n     net$     WR   recovered
+ -2.5%    1   +$1.66   100%   1/1
+ <= -5%   0        —      —      —
+```
+
+**n=1.** The stop fires so reliably that the survivor population does not
+exist — `last_snap == worst` for nearly every stop-out. Widening the primary
+risk control on one observation would be the same error as the 1h-drop gate
+rejected earlier today: a plausible story with no data behind it. Deferred
+again, and now for a second reason on top of keeping the 2026-08-28 volatility
+change attributable.
+
+### Decision: build the counterfactual prospectively (`shadow-log.js`)
+
+The data doesn't exist, so generate it. On every successful close, snapshot the
+base-token price, then re-read it at +5/+15/+30 min to `logs/shadow-closes.jsonl`.
+In ~2 weeks this is the survivor population the backtest needed.
+
+Design choices worth recording:
+
+- **Hooked inside `closePosition`, not at the two call sites.** Same reasoning as
+  the close mutex — one choke point covers every caller, including future ones.
+- **Fire-and-forget, wrapped in try/catch, never awaited.** An observation feature
+  must not be able to delay or fail a real close.
+- **Logs every close, not only stops.** Free, and the same file then answers
+  "are take-profits exiting too early" — suspected on both sides given the
+  23-minute median hold.
+- **Disk-backed JSONL, 60s sweep, backfills missed marks.** pm2 restarts must not
+  eat pending probes. Rows retire 1h past the last mark so a delisted token isn't
+  re-fetched forever.
+
+**Known limitation, stated plainly: this measures TOKEN price, not LP PnL.**
+The position is gone; real LP PnL is unrecoverable. For a single-sided SOL
+position that broke below range — the case the stop fires on — the position is
+~100% converted to base token and tracks it closely. For a stop that fired while
+still in range, token move **overstates** the value of holding, since part of the
+position was still SOL. `vs_close_pct` is an upper bound on holding, not an
+estimate of it. Anyone reading this file in two weeks must apply that caveat.
+
+### Verification
+
+`test/test-shadow-log.js` (new): probe scheduling on the mark, backfill after a
+missed sweep, no re-collection of filled probes, retirement of complete and
+abandoned rows, corrupt-date handling, and the sign of `vs_close_pct` (positive
+= holding would have beaten the stop). Divide-by-zero returns null rather than
+Infinity.
+
+All pass: `test-shadow-log`, `test-close-rules`, `test-tick-stop`,
+`test-outcome-cooldown`.
+
+### Still open
+
+- **Action-log result truncation at 1000 chars** — blocks every entry-filter
+  hypothesis (the 1h-drop backtest matched only 11 of 292 closes because 30 of 54
+  candidate snapshots were cut). This is the highest-value unblocking fix.
+- **`initial_value_usd` backfill** — `evolveThresholds()` still reads corrupted
+  history. Recoverable via `amount_sol × entry_sol_price`.
+- **Hold time / payoff ratio** — the actual cause of the negative book. No change
+  made yet; shadow-log data should inform it rather than another hypothesis.
+
+---
+
 ## 2026-08-29 — Downside close rules, close mutex, LP staleness watch
 
 **Trigger:** GOLD-SOL closed -30.94% / -$4.83 after 32 min. Largest single loss

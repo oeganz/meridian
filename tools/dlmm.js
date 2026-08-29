@@ -28,6 +28,7 @@ import {
 import { refreshSimSnapshots } from "../sim-poller.js";
 import { recordPerformance } from "../lessons.js";
 import { isBaseMintOnCooldown, isPoolOnCooldown } from "../pool-memory.js";
+import { recordShadowClose } from "../shadow-log.js";
 import { normalizeMint, getWalletBalances } from "./wallet.js";
 import { appendDecision } from "../decision-log.js";
 import { agentMeridianJson, getAgentIdForRequests, getAgentMeridianHeaders } from "./agent-meridian.js";
@@ -1680,7 +1681,12 @@ export async function closePosition({ position_address, reason }) {
   }
   _closing.add(position_address);
   try {
-    return await _closePosition({ position_address, reason });
+    const res = await _closePosition({ position_address, reason });
+    // Fire-and-forget: snapshots the token price so shadow-log.js can price the
+    // "what if we had held" counterfactual at +5/+15/+30min. Observation only, and
+    // deliberately not awaited — a logging fetch must never delay or fail a close.
+    if (res?.success) void recordShadowClose({ position_address, reason, result: res });
+    return res;
   } finally {
     _closing.delete(position_address);
   }

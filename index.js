@@ -28,6 +28,7 @@ import { generateBriefing } from "./briefing.js";
 import { getLastBriefingDate, setLastBriefingDate, getTrackedPosition, getTrackedPositions, setPositionInstruction, updatePnlAndCheckExits, queuePeakConfirmation, resolvePendingPeak, queueTrailingDropConfirmation, resolvePendingTrailingDrop, initSimWallet, getSimSolBalance } from "./state.js";
 import { startSimPoller } from "./sim-poller.js";
 import { startTickStop, stopTickStop } from "./tick-stop.js";
+import { startShadowLog, stopShadowLog } from "./shadow-log.js";
 import { getActiveStrategy } from "./strategy-library.js";
 import { recordPositionSnapshot, recallForPool, addPoolNote } from "./pool-memory.js";
 import { checkSmartWalletsOnPool } from "./smart-wallets.js";
@@ -222,6 +223,7 @@ function stopCronJobs() {
   for (const task of _cronTasks) task.stop();
   if (_cronTasks._pnlPollInterval) clearInterval(_cronTasks._pnlPollInterval);
   stopTickStop();
+  stopShadowLog();
   _cronTasks = [];
 }
 
@@ -859,6 +861,7 @@ Summarize the current portfolio health, total fees earned, and performance of al
   // Store interval ref so stopCronJobs can clear it
   _cronTasks._pnlPollInterval = pnlPollInterval;
   startTickStop();
+  startShadowLog();
   log("cron", `Cycles started — management every ${config.schedule.managementIntervalMin}m, screening every ${config.schedule.screeningIntervalMin}m`);
 }
 
