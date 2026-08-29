@@ -964,6 +964,29 @@ function getDeterministicCloseRule(position, managementConfig) {
   ) {
     return { action: "CLOSE", rule: 4, reason: "OOR" };
   }
+  // Rules 6/7 mirror 3/4 on the downside. Deploys are single-side SOL, so price
+  // falling BELOW the range is the primary loss mode: the position converts fully
+  // to the base token and stops earning fees. That case had no deterministic rule
+  // at all — it relied on rule 1, whose pnl_pct comes from the Meteora indexer and
+  // ran ~45-60s stale during the GOLD-SOL collapse (tick-stop read lp=+1.50% twice
+  // while the token was already down 66%). Bin ids come from the same payload but
+  // are positional, not a priced aggregate, so they don't carry that lag.
+  // Numbered 6/7 rather than 3b/4b so rule numbers in historical logs keep meaning.
+  if (
+    position.active_bin != null &&
+    position.lower_bin != null &&
+    position.active_bin < position.lower_bin - managementConfig.outOfRangeBinsToClose
+  ) {
+    return { action: "CLOSE", rule: 6, reason: "dumped far below range" };
+  }
+  if (
+    position.active_bin != null &&
+    position.lower_bin != null &&
+    position.active_bin < position.lower_bin &&
+    (position.minutes_out_of_range ?? 0) >= managementConfig.outOfRangeWaitMinutes
+  ) {
+    return { action: "CLOSE", rule: 7, reason: "OOR below range" };
+  }
   if (
     position.fee_per_tvl_24h != null &&
     position.fee_per_tvl_24h < managementConfig.minFeePerTvl24h &&

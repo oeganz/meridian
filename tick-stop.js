@@ -43,6 +43,12 @@ let _busy = false;
 let _lastTriggerAt = 0;
 let _rateLimitedUntil = 0;
 const _cooldownUntil = new Map(); // position_address -> ms epoch
+// position_address -> last { lpPnlPct, tokenMovePct }. Used only to detect a
+// frozen LP feed; never gates a close.
+const _lastLpRead = new Map();
+// Token must move at least this much between reads before an identical LP value
+// counts as evidence the feed is stale rather than genuinely flat.
+const STALE_TOKEN_MOVE_PP = 5;
 
 function inCooldown(positionAddress) {
   const until = _cooldownUntil.get(positionAddress);
@@ -140,6 +146,20 @@ async function tickOnce() {
         setCooldown(p.position, 30_000);
         continue;
       }
+
+      // Staleness watch — OBSERVE ONLY, deliberately does not affect the close.
+      // getPositionPnl reads Meteora's PnL indexer, which lagged spot by ~45-60s
+      // during the GOLD-SOL rug: lp=+1.50% was returned twice, 32s apart, while
+      // the token screen moved 9pp and true LP PnL was near -50%. Not wired into
+      // the exit because on that trade the lag was worth +18pp (close at first
+      // detection would have realized worse than the -30.94% actually taken).
+      // Log it, gather cases, decide with data.
+      const prev = _lastLpRead.get(p.position);
+      if (prev && prev.lpPnlPct === lpPnlPct &&
+          Math.abs(tokenMovePct - prev.tokenMovePct) >= STALE_TOKEN_MOVE_PP) {
+        log("tick_stop_stale", `LP feed possibly stale ${p.pool_name || p.position.slice(0, 8)} lp=${lpPnlPct.toFixed(2)}% unchanged while token moved ${prev.tokenMovePct.toFixed(2)}% -> ${tokenMovePct.toFixed(2)}%`);
+      }
+      _lastLpRead.set(p.position, { lpPnlPct, tokenMovePct });
       if (lpPnlPct > stopLossPct) {
         // Token dipped but the LP position is still fine — this is the case that
         // used to force a losing close. Back off and re-screen later.
@@ -157,6 +177,7 @@ async function tickOnce() {
 
       _lastTriggerAt = Date.now();
       setCooldown(p.position);
+      _lastLpRead.delete(p.position);
       log("tick_stop", `STOP-LOSS TICK ${p.pool_name || p.position.slice(0, 8)} lp=${lpPnlPct.toFixed(2)}% token=${tokenMovePct.toFixed(2)}% entry=${p.entry_token_price_usd} live=${live}`);
       try {
         // via executeTool so the close is logged and reaches recordPerformance()

@@ -1666,8 +1666,27 @@ export async function claimFees({ position_address }) {
 }
 
 // ─── Close Position ────────────────────────────────────────────
+// Positions with a close already in flight. tick-stop and the management cycle
+// are independent closers: on GOLD-SOL both fired 13s apart, the second tx failed
+// with "resulted in an error" after the first had already removed the liquidity.
+// Guarding inside closePosition covers every caller, not just those two.
+const _closing = new Set();
+
 export async function closePosition({ position_address, reason }) {
   position_address = normalizeMint(position_address);
+  if (_closing.has(position_address)) {
+    log("close_warn", `Close already in flight for ${position_address.slice(0, 8)} — skipping duplicate`);
+    return { success: false, skipped: true, reason: "close already in flight" };
+  }
+  _closing.add(position_address);
+  try {
+    return await _closePosition({ position_address, reason });
+  } finally {
+    _closing.delete(position_address);
+  }
+}
+
+async function _closePosition({ position_address, reason }) {
   if (process.env.DRY_RUN === "true") {
     const tracked = getTrackedPosition(position_address);
     if (!tracked) return { dry_run: true, success: false, error: "Position not found in state" };
